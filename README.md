@@ -39,7 +39,7 @@ comparisons with the previous period and personal records. Export a full report 
 or your daily data as CSV.
 
 ### RuneJourney Wrapped
-Every Monday, relive last week as an animated, in-game "Wrapped" with its own theme and music.
+Every Monday, relive last week as an animated, in-game "Wrapped" with its own look each week.
 
 ### Overlay (optional)
 Show a pinned goal, this week's plan, today's stats, your streak or net worth on screen.
@@ -56,5 +56,3 @@ Net worth and screenshots can be turned off in the plugin settings.
 
 - The bank is only visible to plugins while it's open, so banked coins and bank value update when you open it.
 - The game doesn't share your Combat Achievement points total; enter it once when you create a CA points goal.
-- Wrapped's music is original, composed on the fly in the style of OSRS's MIDI soundtrack and played with
-  Java's built-in synthesizer. By default the game's music is paused while Wrapped plays and restored afterwards.

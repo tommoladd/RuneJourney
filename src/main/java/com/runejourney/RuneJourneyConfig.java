@@ -468,42 +468,4 @@ public interface RuneJourneyConfig extends Config
 	{
 		return true;
 	}
-
-	@ConfigItem(
-		keyName = "wrappedMusic",
-		name = "Music",
-		description = "Play RuneJourney's own music while Wrapped is showing",
-		section = wrappedSection,
-		position = 2
-	)
-	default boolean wrappedMusic()
-	{
-		return true;
-	}
-
-	@Range(min = 0, max = 100)
-	@ConfigItem(
-		keyName = "wrappedMusicVolume",
-		name = "Music volume",
-		description = "Volume of the Wrapped music",
-		section = wrappedSection,
-		position = 3
-	)
-	@Units(Units.PERCENT)
-	default int wrappedMusicVolume()
-	{
-		return 60;
-	}
-
-	@ConfigItem(
-		keyName = "wrappedMuteGameMusic",
-		name = "Pause game music",
-		description = "Turn the game's music down while Wrapped plays, and back up afterwards",
-		section = wrappedSection,
-		position = 4
-	)
-	default boolean wrappedMuteGameMusic()
-	{
-		return true;
-	}
 }

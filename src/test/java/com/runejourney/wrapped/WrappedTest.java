@@ -7,7 +7,6 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
-import javax.sound.midi.Sequence;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -86,16 +85,5 @@ public class WrappedTest
 		WrappedWeek again = WrappedBuilder.build(WrappedBuilder.Input.builder()
 			.weekStart(MONDAY).player("P").days(week(true)).build());
 		assertEquals(text(a), text(again));
-	}
-
-	@Test
-	public void everyThemeComposes() throws Exception
-	{
-		for (int theme = 0; theme < WrappedBuilder.THEMES; theme++)
-		{
-			Sequence seq = WrappedMusic.compose(theme, theme * 7L, 60);
-			assertTrue(seq.getTracks()[0].size() > 100);
-			assertTrue(seq.getMicrosecondLength() > 10_000_000L);
-		}
 	}
 }

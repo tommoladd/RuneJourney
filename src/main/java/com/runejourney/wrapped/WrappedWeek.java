@@ -60,7 +60,7 @@ public class WrappedWeek
 	private LocalDate weekEnd;
 	private String player;
 	/**
-	 * Picks the colour palette and music theme, so each week looks and sounds different.
+	 * Picks the colour palette, so each week looks different.
 	 */
 	private int theme;
 	private List<Slide> slides = new ArrayList<>();

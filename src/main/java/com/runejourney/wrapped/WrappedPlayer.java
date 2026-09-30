@@ -17,7 +17,6 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import com.runejourney.planner.Skills;
 import net.runelite.api.Skill;
-import net.runelite.client.callback.ClientThread;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.http.api.item.ItemPrice;
@@ -26,7 +25,7 @@ import net.runelite.client.input.MouseManager;
 import net.runelite.client.ui.overlay.OverlayManager;
 
 /**
- * Plays a Wrapped: which slide is showing, timing, music, and whether it's drawn over the game or in
+ * Plays a Wrapped: which slide is showing, timing, and whether it's drawn over the game or in
  * its own window. Input arrives from the Swing thread and drawing happens on the client thread, so
  * state is guarded by this object's lock.
  */
@@ -35,7 +34,6 @@ import net.runelite.client.ui.overlay.OverlayManager;
 public class WrappedPlayer
 {
 	private final Client client;
-	private final ClientThread clientThread;
 	private final OverlayManager overlayManager;
 	private final MouseManager mouseManager;
 	private final KeyManager keyManager;
@@ -44,7 +42,6 @@ public class WrappedPlayer
 	private final JourneyStore store;
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
-	private final WrappedMusic music = new WrappedMusic();
 	/**
 	 * Resolved icons by key. Missing icons are cached as EMPTY so lookups aren't repeated every frame.
 	 */
@@ -62,19 +59,17 @@ public class WrappedPlayer
 	private WrappedWindow window;
 	private volatile BufferedImage screenshot;
 	private String screenshotName;
-	private Integer savedMusicVolume;
 	private Point hover;
 	private WrappedRenderer.Layout layout;
 
 	@Inject
-	WrappedPlayer(Client client, ClientThread clientThread, OverlayManager overlayManager, MouseManager mouseManager,
+	WrappedPlayer(Client client, OverlayManager overlayManager, MouseManager mouseManager,
 		KeyManager keyManager, WrappedOverlay overlay, RuneJourneyConfig config, JourneyStore store, ItemManager itemManager,
 		SkillIconManager skillIconManager)
 	{
 		this.itemManager = itemManager;
 		this.skillIconManager = skillIconManager;
 		this.client = client;
-		this.clientThread = clientThread;
 		this.overlayManager = overlayManager;
 		this.mouseManager = mouseManager;
 		this.keyManager = keyManager;
@@ -122,29 +117,6 @@ public class WrappedPlayer
 		{
 			window = new WrappedWindow(this);
 			window.setVisible(true);
-		}
-
-		if (config.wrappedMusic())
-		{
-			if (config.wrappedMuteGameMusic())
-			{
-				clientThread.invoke(() ->
-				{
-					if (savedMusicVolume == null)
-					{
-						savedMusicVolume = client.getMusicVolume();
-						client.setMusicVolume(0);
-					}
-				});
-			}
-			ExecutorService exec = executor;
-			int theme = w.getTheme();
-			long seed = w.getWeekStart().toEpochDay();
-			int volume = config.wrappedMusicVolume();
-			if (exec != null && !exec.isShutdown())
-			{
-				exec.submit(() -> music.play(theme, seed, volume));
-			}
 		}
 	}
 
@@ -328,7 +300,7 @@ public class WrappedPlayer
 	}
 
 	/**
-	 * Stops playing and puts the game's music back. Safe to call from any thread.
+	 * Stops playing. Safe to call from any thread.
 	 */
 	public void close()
 	{
@@ -359,23 +331,6 @@ public class WrappedPlayer
 		{
 			SwingUtilities.invokeLater(w::dispose);
 		}
-		ExecutorService exec = executor;
-		if (exec != null && !exec.isShutdown())
-		{
-			exec.submit(music::stop);
-		}
-		else
-		{
-			music.stop();
-		}
-		clientThread.invoke(() ->
-		{
-			if (savedMusicVolume != null)
-			{
-				client.setMusicVolume(savedMusicVolume);
-				savedMusicVolume = null;
-			}
-		});
 	}
 
 	private void loadScreenshot()
