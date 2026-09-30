@@ -1,0 +1,136 @@
+package com.runejourney.ui;
+
+import com.runejourney.service.JourneyService;
+import java.awt.BorderLayout;
+import java.awt.GridLayout;
+import javax.inject.Inject;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+import javax.swing.border.EmptyBorder;
+import net.runelite.client.ui.ColorScheme;
+import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.ui.components.materialtabs.MaterialTab;
+import net.runelite.client.ui.components.materialtabs.MaterialTabGroup;
+
+public class RuneJourneyPanel extends PluginPanel
+{
+	private final JourneyService service;
+	private final TodayTab today;
+	private final GoalsTab goals;
+	private final JourneyTab journey;
+	private final DiscoverTab discover;
+
+	private final JLabel subtitle = new JLabel();
+	private final JPanel loggedOut;
+	private final JPanel display = new JPanel(new BorderLayout());
+	private final JPanel content = new JPanel(new BorderLayout());
+	private RefreshableTab selected;
+
+	@Inject
+	RuneJourneyPanel(JourneyService service, Views views, TodayTab today, GoalsTab goals, JourneyTab journey, DiscoverTab discover)
+	{
+		this.service = service;
+		this.today = today;
+		this.goals = goals;
+		this.journey = journey;
+		this.discover = discover;
+		views.setOnChange(() -> refresh(true));
+
+		setLayout(new BorderLayout());
+		setBorder(new EmptyBorder(8, 8, 8, 8));
+		setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JPanel header = new JPanel(new BorderLayout());
+		header.setOpaque(false);
+		header.setBorder(new EmptyBorder(0, 2, 6, 2));
+		JLabel title = new JLabel("RuneJourney");
+		title.setFont(FontManager.getRunescapeBoldFont());
+		title.setForeground(Ui.GOLD);
+		header.add(title, BorderLayout.WEST);
+		subtitle.setFont(FontManager.getRunescapeSmallFont());
+		subtitle.setForeground(Ui.MUTED);
+		header.add(subtitle, BorderLayout.EAST);
+
+		display.setOpaque(false);
+		MaterialTabGroup tabs = new MaterialTabGroup(display);
+		// Two rows of two so the names fit the sidebar without truncating
+		tabs.setLayout(new GridLayout(2, 2, 4, 4));
+		tabs.setBorder(new EmptyBorder(0, 0, 6, 0));
+		MaterialTab todayTab = tab(tabs, "Today", today);
+		tab(tabs, "My Goals", goals);
+		tab(tabs, "My Journey", journey);
+		tab(tabs, "Advisor", discover);
+
+		JPanel top = new JPanel(new BorderLayout());
+		top.setOpaque(false);
+		top.add(header, BorderLayout.NORTH);
+		top.add(tabs, BorderLayout.SOUTH);
+
+		loggedOut = Ui.empty("Log in to start recording your journey. Your levels, drops, boss kills and "
+			+ "milestones will be recorded automatically while you play.");
+
+		content.setOpaque(false);
+		content.add(top, BorderLayout.NORTH);
+		content.add(display, BorderLayout.CENTER);
+		add(content, BorderLayout.NORTH);
+
+		tabs.select(todayTab);
+	}
+
+	private MaterialTab tab(MaterialTabGroup group, String name, RefreshableTab panel)
+	{
+		MaterialTab tab = new MaterialTab(name, group, panel);
+		tab.setHorizontalAlignment(SwingConstants.CENTER);
+		tab.setFont(FontManager.getRunescapeFont());
+		tab.setOnSelectEvent(() ->
+		{
+			selected = panel;
+			panel.refresh(true);
+			return true;
+		});
+		group.addTab(tab);
+		return tab;
+	}
+
+	/**
+	 * Rebuilds the visible tab. Must be called on the Swing thread.
+	 */
+	public void refresh(boolean force)
+	{
+		boolean ready = service.isReady();
+		String name = service.playerName();
+		subtitle.setText(name != null ? name : "");
+
+		if (!ready)
+		{
+			if (loggedOut.getParent() == null)
+			{
+				content.remove(display);
+				content.add(loggedOut, BorderLayout.CENTER);
+				content.revalidate();
+				content.repaint();
+			}
+			return;
+		}
+		if (loggedOut.getParent() != null)
+		{
+			content.remove(loggedOut);
+			content.add(display, BorderLayout.CENTER);
+			content.revalidate();
+			force = true;
+		}
+
+		if (selected != null && (isShowing() || force))
+		{
+			selected.refresh(force);
+		}
+	}
+
+	@Override
+	public void onActivate()
+	{
+		refresh(true);
+	}
+}
