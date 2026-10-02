@@ -57,14 +57,17 @@ class JourneyTab extends RefreshableTab
 	private final Views views;
 	private final ItemIndex itemIndex;
 	private final ItemManager itemManager;
+	private final ScreenshotWindowManager screenshotWindows;
 	private final JComboBox<Filter> filterBox = new JComboBox<>(Filter.values());
 	private final JPanel body = Ui.stack(4);
 	private int days = PAGE_DAYS;
 	private int lastEventVersion = -1;
 
 	@Inject
-	JourneyTab(JourneyService service, Views views, ItemIndex itemIndex, ItemManager itemManager)
+	JourneyTab(JourneyService service, Views views, ItemIndex itemIndex, ItemManager itemManager,
+		ScreenshotWindowManager screenshotWindows)
 	{
+		this.screenshotWindows = screenshotWindows;
 		this.itemIndex = itemIndex;
 		this.itemManager = itemManager;
 		this.service = service;
@@ -86,7 +89,14 @@ class JourneyTab extends RefreshableTab
 			refresh(true);
 		});
 
-		add(controls, BorderLayout.NORTH);
+		JButton gallery = Ui.button("Screenshots", screenshotWindows::open);
+		gallery.setToolTipText("View, save or delete the screenshots RuneJourney has taken");
+		JPanel top = new JPanel(new GridLayout(0, 1, 0, 4));
+		top.setOpaque(false);
+		top.add(controls);
+		top.add(gallery);
+
+		add(top, BorderLayout.NORTH);
 		add(body, BorderLayout.CENTER);
 	}
 

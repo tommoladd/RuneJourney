@@ -140,6 +140,10 @@ public class JourneyStore
 
 	public BufferedImage readScreenshot(String profileKey, String name) throws IOException
 	{
+		if (!isScreenshotName(name))
+		{
+			return null;
+		}
 		Filepath file = profileDir(profileKey).joinSegment(SCREENSHOT_DIR).joinSegment(name);
 		if (!file.exists())
 		{
@@ -149,6 +153,66 @@ public class JourneyStore
 		{
 			return ImageIO.read(in);
 		}
+	}
+
+	@Value
+	public static class ScreenshotFile
+	{
+		String name;
+		long size;
+		/**
+		 * Epoch millis the file was last written.
+		 */
+		long modified;
+	}
+
+	/**
+	 * Only names RuneJourney itself writes, so a name can never point outside the folder.
+	 */
+	private static final java.util.regex.Pattern SCREENSHOT_NAME = java.util.regex.Pattern.compile("[A-Za-z0-9._-]+\\.png");
+
+	public static boolean isScreenshotName(String name)
+	{
+		return name != null && SCREENSHOT_NAME.matcher(name).matches() && !name.startsWith(".");
+	}
+
+	/**
+	 * Every screenshot saved for a profile, newest first.
+	 */
+	public List<ScreenshotFile> listScreenshots(String profileKey) throws IOException
+	{
+		Filepath dir = profileDir(profileKey).joinSegment(SCREENSHOT_DIR);
+		if (!dir.isDirectory())
+		{
+			return new java.util.ArrayList<>();
+		}
+		List<Filepath> files;
+		try (Stream<Filepath> walk = dir.walk(1))
+		{
+			files = walk.filter(f -> isScreenshotName(f.getFileName())).collect(Collectors.toList());
+		}
+		List<ScreenshotFile> result = new java.util.ArrayList<>();
+		for (Filepath f : files)
+		{
+			result.add(new ScreenshotFile(f.getFileName(), f.size(), f.getLastModifiedTime().toMillis()));
+		}
+		result.sort((a, b) -> Long.compare(b.getModified(), a.getModified()));
+		return result;
+	}
+
+	public boolean deleteScreenshot(String profileKey, String name) throws IOException
+	{
+		if (!isScreenshotName(name))
+		{
+			return false;
+		}
+		Filepath file = profileDir(profileKey).joinSegment(SCREENSHOT_DIR).joinSegment(name);
+		if (!file.exists())
+		{
+			return false;
+		}
+		file.delete();
+		return true;
 	}
 
 	private Filepath profileDir(String profileKey)

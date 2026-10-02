@@ -6,7 +6,6 @@ import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Range;
-import net.runelite.client.config.Units;
 
 @ConfigGroup(RuneJourneyConfig.GROUP)
 public interface RuneJourneyConfig extends Config
@@ -55,6 +54,14 @@ public interface RuneJourneyConfig extends Config
 	)
 	String wrappedSection = "wrapped";
 
+	@ConfigSection(
+		name = "Encouragement",
+		description = "Friendly chat messages every so much XP in a skill. Slower skills cheer you on more often.",
+		position = 6,
+		closedByDefault = true
+	)
+	String encouragementSection = "encouragement";
+
 	@ConfigItem(
 		keyName = "logEveryLevel",
 		name = "Record every level",
@@ -98,7 +105,6 @@ public interface RuneJourneyConfig extends Config
 		section = journeySection,
 		position = 3
 	)
-	@Units(" xp")
 	default int xpMilestoneInterval()
 	{
 		return 1_000_000;
@@ -111,7 +117,6 @@ public interface RuneJourneyConfig extends Config
 		section = journeySection,
 		position = 4
 	)
-	@Units(" xp")
 	default int totalXpMilestoneInterval()
 	{
 		return 10_000_000;
@@ -124,7 +129,6 @@ public interface RuneJourneyConfig extends Config
 		section = journeySection,
 		position = 5
 	)
-	@Units(" kc")
 	default int kcMilestoneInterval()
 	{
 		return 50;
@@ -149,7 +153,6 @@ public interface RuneJourneyConfig extends Config
 		section = journeySection,
 		position = 7
 	)
-	@Units(" gp")
 	default int valuableDropThreshold()
 	{
 		return 1_000_000;
@@ -349,6 +352,18 @@ public interface RuneJourneyConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "trackSupplies",
+		name = "Track supplies used",
+		description = "Count the GE value of food you eat and potion doses you drink, and show profit after supplies",
+		section = wealthSection,
+		position = 2
+	)
+	default boolean trackSupplies()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "showOverlay",
 		name = "Show overlay",
 		description = "Show RuneJourney progress on the game screen",
@@ -467,5 +482,305 @@ public interface RuneJourneyConfig extends Config
 	default boolean wrappedInGame()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = "encouragement",
+		name = "Encouraging messages",
+		description = "Send an encouraging chat message each time you gain the amount of XP set below in a skill",
+		section = encouragementSection,
+		position = 0
+	)
+	default boolean encouragement()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "encourageAttack",
+		name = "Attack XP gap",
+		description = "Encourage you every this much Attack XP (0 = never)",
+		section = encouragementSection,
+		position = 1
+	)
+	default int encourageAttack()
+	{
+		return 500_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageStrength",
+		name = "Strength XP gap",
+		description = "Encourage you every this much Strength XP (0 = never)",
+		section = encouragementSection,
+		position = 2
+	)
+	default int encourageStrength()
+	{
+		return 500_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageDefence",
+		name = "Defence XP gap",
+		description = "Encourage you every this much Defence XP (0 = never)",
+		section = encouragementSection,
+		position = 3
+	)
+	default int encourageDefence()
+	{
+		return 500_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageRanged",
+		name = "Ranged XP gap",
+		description = "Encourage you every this much Ranged XP (0 = never)",
+		section = encouragementSection,
+		position = 4
+	)
+	default int encourageRanged()
+	{
+		return 500_000;
+	}
+
+	@ConfigItem(
+		keyName = "encouragePrayer",
+		name = "Prayer XP gap",
+		description = "Encourage you every this much Prayer XP (0 = never)",
+		section = encouragementSection,
+		position = 5
+	)
+	default int encouragePrayer()
+	{
+		return 1_000_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageMagic",
+		name = "Magic XP gap",
+		description = "Encourage you every this much Magic XP (0 = never)",
+		section = encouragementSection,
+		position = 6
+	)
+	default int encourageMagic()
+	{
+		return 500_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageRunecraft",
+		name = "Runecraft XP gap",
+		description = "Encourage you every this much Runecraft XP (0 = never)",
+		section = encouragementSection,
+		position = 7
+	)
+	default int encourageRunecraft()
+	{
+		return 250_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageConstruction",
+		name = "Construction XP gap",
+		description = "Encourage you every this much Construction XP (0 = never)",
+		section = encouragementSection,
+		position = 8
+	)
+	default int encourageConstruction()
+	{
+		return 1_000_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageHitpoints",
+		name = "Hitpoints XP gap",
+		description = "Encourage you every this much Hitpoints XP (0 = never)",
+		section = encouragementSection,
+		position = 9
+	)
+	default int encourageHitpoints()
+	{
+		return 500_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageAgility",
+		name = "Agility XP gap",
+		description = "Encourage you every this much Agility XP (0 = never)",
+		section = encouragementSection,
+		position = 10
+	)
+	default int encourageAgility()
+	{
+		return 250_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageHerblore",
+		name = "Herblore XP gap",
+		description = "Encourage you every this much Herblore XP (0 = never)",
+		section = encouragementSection,
+		position = 11
+	)
+	default int encourageHerblore()
+	{
+		return 1_000_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageThieving",
+		name = "Thieving XP gap",
+		description = "Encourage you every this much Thieving XP (0 = never)",
+		section = encouragementSection,
+		position = 12
+	)
+	default int encourageThieving()
+	{
+		return 500_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageCrafting",
+		name = "Crafting XP gap",
+		description = "Encourage you every this much Crafting XP (0 = never)",
+		section = encouragementSection,
+		position = 13
+	)
+	default int encourageCrafting()
+	{
+		return 1_000_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageFletching",
+		name = "Fletching XP gap",
+		description = "Encourage you every this much Fletching XP (0 = never)",
+		section = encouragementSection,
+		position = 14
+	)
+	default int encourageFletching()
+	{
+		return 1_000_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageSlayer",
+		name = "Slayer XP gap",
+		description = "Encourage you every this much Slayer XP (0 = never)",
+		section = encouragementSection,
+		position = 15
+	)
+	default int encourageSlayer()
+	{
+		return 250_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageHunter",
+		name = "Hunter XP gap",
+		description = "Encourage you every this much Hunter XP (0 = never)",
+		section = encouragementSection,
+		position = 16
+	)
+	default int encourageHunter()
+	{
+		return 250_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageMining",
+		name = "Mining XP gap",
+		description = "Encourage you every this much Mining XP (0 = never)",
+		section = encouragementSection,
+		position = 17
+	)
+	default int encourageMining()
+	{
+		return 250_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageSmithing",
+		name = "Smithing XP gap",
+		description = "Encourage you every this much Smithing XP (0 = never)",
+		section = encouragementSection,
+		position = 18
+	)
+	default int encourageSmithing()
+	{
+		return 1_000_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageFishing",
+		name = "Fishing XP gap",
+		description = "Encourage you every this much Fishing XP (0 = never)",
+		section = encouragementSection,
+		position = 19
+	)
+	default int encourageFishing()
+	{
+		return 250_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageCooking",
+		name = "Cooking XP gap",
+		description = "Encourage you every this much Cooking XP (0 = never)",
+		section = encouragementSection,
+		position = 20
+	)
+	default int encourageCooking()
+	{
+		return 1_000_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageFiremaking",
+		name = "Firemaking XP gap",
+		description = "Encourage you every this much Firemaking XP (0 = never)",
+		section = encouragementSection,
+		position = 21
+	)
+	default int encourageFiremaking()
+	{
+		return 500_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageWoodcutting",
+		name = "Woodcutting XP gap",
+		description = "Encourage you every this much Woodcutting XP (0 = never)",
+		section = encouragementSection,
+		position = 22
+	)
+	default int encourageWoodcutting()
+	{
+		return 250_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageFarming",
+		name = "Farming XP gap",
+		description = "Encourage you every this much Farming XP (0 = never)",
+		section = encouragementSection,
+		position = 23
+	)
+	default int encourageFarming()
+	{
+		return 500_000;
+	}
+
+	@ConfigItem(
+		keyName = "encourageSailing",
+		name = "Sailing XP gap",
+		description = "Encourage you every this much Sailing XP (0 = never)",
+		section = encouragementSection,
+		position = 24
+	)
+	default int encourageSailing()
+	{
+		return 250_000;
 	}
 }

@@ -683,6 +683,10 @@ public class ReportService
 			{
 				h.append("<div class=\"muted\">").append(esc(e.getDetail())).append("</div>");
 			}
+			if (e.getNote() != null)
+			{
+				h.append("<div class=\"note\">").append(esc(e.getNote()).replace("\n", "<br>")).append("</div>");
+			}
 			if (includeScreenshots && e.getScreenshot() != null && shots < MAX_SCREENSHOTS && r.getProfileKey() != null)
 			{
 				String data = screenshot(r.getProfileKey(), e.getScreenshot());
@@ -752,7 +756,7 @@ public class ReportService
 		+ "th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}td.up{color:var(--good)}"
 		+ ".barcol{width:35%}.bar{height:8px;background:#2b261e;border-radius:4px;overflow:hidden}.bar span{display:block;height:100%;background:var(--gold)}"
 		+ ".cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px 24px}"
-		+ "ul,ol{margin:0;padding-left:20px}.muted{color:var(--muted)}.good{color:var(--good)}.big{font-size:28px;font-weight:700;margin:0}"
+		+ "ul,ol{margin:0;padding-left:20px}.muted{color:var(--muted)}.note{color:#d7ccc8;font-style:italic;margin-top:4px}.good{color:var(--good)}.big{font-size:28px;font-weight:700;margin:0}"
 		+ ".goals{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}"
 		+ ".goal{border:1px solid var(--line);border-radius:10px;padding:12px}.goal p{margin:6px 0 0;font-size:13px}"
 		+ ".gh{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}"

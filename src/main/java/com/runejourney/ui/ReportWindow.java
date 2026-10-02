@@ -2,6 +2,7 @@ package com.runejourney.ui;
 
 import com.runejourney.RuneJourneyPlugin;
 import com.runejourney.model.DayRecord;
+import com.runejourney.model.ItemTotal;
 import com.runejourney.model.JourneyEvent;
 import com.runejourney.planner.Counters;
 import com.runejourney.planner.GoalPlanner;
@@ -9,6 +10,7 @@ import com.runejourney.planner.Skills;
 import com.runejourney.report.Analytics;
 import com.runejourney.report.CsvExport;
 import com.runejourney.report.Granularity;
+import com.runejourney.report.LootReport;
 import com.runejourney.report.Metric;
 import com.runejourney.report.Unit;
 import com.runejourney.service.JourneyService;
@@ -40,6 +42,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListModel;
+import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
@@ -194,6 +197,60 @@ class ReportWindow extends JFrame
 	private final BarChart killsByBoss = new BarChart(12);
 	private final BarChart incomeBySource = new BarChart(12);
 
+	// Loot
+	private static final String[] LOOT_COLUMNS = {"Source", "Kills / trips", "Total", "Per kill / trip", "Share",
+		"GP / hour", "Vs previous", "Best item"};
+	private final JPanel lootTiles = new JPanel(new GridLayout(1, 4, 8, 0));
+	private final BarChart lootTotals = new BarChart(15);
+	private final BarChart lootPerKill = new BarChart(15);
+	private final DefaultTableModel lootModel = new DefaultTableModel(LOOT_COLUMNS, 0)
+	{
+		@Override
+		public boolean isCellEditable(int row, int column)
+		{
+			return false;
+		}
+
+		@Override
+		public Class<?> getColumnClass(int column)
+		{
+			// Numbers stay numbers so sorting by a column orders by value, not text
+			return column == 0 || column == 7 ? String.class : LootCell.class;
+		}
+	};
+
+	/**
+	 * The source whose items are listed, kept across period changes.
+	 */
+	private String lootSource;
+	private final JTextField lootSearch = new JTextField();
+	private final JLabel lootTableTitle = new JLabel();
+	private List<LootReport.Row> lootRows = Collections.emptyList();
+	/**
+	 * How each listed source matched the search.
+	 */
+	private final Map<String, LootReport.Match> lootMatches = new java.util.HashMap<>();
+	private final JTable lootTable = new JTable(lootModel);
+	private final JLabel lootDetailTitle = new JLabel();
+	private final JComboBox<String> lootScopeBox = new JComboBox<>(new String[]{"All time", "This period"});
+	private final JButton lootChartButton = Ui.button("Chart over time", () -> openExplore(Metric.LOOT, lootSource));
+	private final JPanel lootDetailTiles = new JPanel(new GridLayout(1, 4, 8, 0));
+	private final DefaultTableModel lootItemsModel = new DefaultTableModel(new String[]{"Item", "Quantity", "Total value",
+		"Per kill / trip", "Share of source"}, 0)
+	{
+		@Override
+		public boolean isCellEditable(int row, int column)
+		{
+			return false;
+		}
+
+		@Override
+		public Class<?> getColumnClass(int column)
+		{
+			return column == 0 ? String.class : LootCell.class;
+		}
+	};
+
 	// Records
 	private final JPanel recordsPanel = new JPanel();
 
@@ -223,6 +280,7 @@ class ReportWindow extends JFrame
 
 		tabs.addTab("Overview", scroll(overview()));
 		tabs.addTab("Explore", scroll(explore()));
+		tabs.addTab("Loot", scroll(loot()));
 		tabs.addTab("Records", scroll(recordsPanel));
 		root.add(tabs, BorderLayout.CENTER);
 		setContentPane(root);
@@ -486,6 +544,385 @@ class ReportWindow extends JFrame
 		return p;
 	}
 
+	private JPanel loot()
+	{
+		JPanel p = new JPanel();
+		p.setLayout(new BoxLayout(p, BoxLayout.Y_AXIS));
+		p.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		p.setBorder(new EmptyBorder(14, 14, 14, 14));
+
+		JLabel title = new JLabel("Loot by boss and activity");
+		title.setFont(FontManager.getRunescapeBoldFont());
+		title.setForeground(Color.WHITE);
+		addRow(p, title, 0);
+		addRow(p, label("GE value of loot, before supplies. GP / hour uses your own kill times. Click a source to chart it."), 0);
+
+		lootTiles.setOpaque(false);
+		addRow(p, lootTiles, 70);
+
+		lootTotals.setEmptyText("No loot in this period");
+		lootTotals.setOnClick(e -> selectLootSource(e.getKey()));
+		lootPerKill.setEmptyText("No loot in this period");
+		lootPerKill.setOnClick(e -> selectLootSource(e.getKey()));
+		JPanel bars = new JPanel(new GridLayout(1, 2, 10, 0));
+		bars.setOpaque(false);
+		bars.add(card("Total loot", lootTotals));
+		bars.add(card("Average per kill or trip", lootPerKill));
+		addRow(p, bars, 0);
+
+		JTable table = lootTable;
+		numberTable(table);
+		table.getSelectionModel().setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+		table.getSelectionModel().addListSelectionListener(e ->
+		{
+			int row = table.getSelectedRow();
+			if (!e.getValueIsAdjusting() && row >= 0)
+			{
+				lootSource = (String) lootModel.getValueAt(table.convertRowIndexToModel(row), 0);
+				renderLootDetail();
+			}
+		});
+		table.addMouseListener(new java.awt.event.MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(java.awt.event.MouseEvent e)
+			{
+				int row = table.rowAtPoint(e.getPoint());
+				if (e.getClickCount() == 2 && row >= 0)
+				{
+					openExplore(Metric.LOOT, (String) lootModel.getValueAt(table.convertRowIndexToModel(row), 0));
+				}
+			}
+		});
+		JScrollPane tableScroll = new JScrollPane(table);
+		tableScroll.setPreferredSize(new Dimension(300, 200));
+
+		JPanel search = new JPanel(new BorderLayout(6, 0));
+		search.setOpaque(false);
+		search.add(label("Search sources or items"), BorderLayout.WEST);
+		lootSearch.setToolTipText("e.g. \"tombs\" for a source, or \"rune chainbody\" for every source that gave one");
+		lootSearch.getDocument().addDocumentListener(new javax.swing.event.DocumentListener()
+		{
+			@Override
+			public void insertUpdate(javax.swing.event.DocumentEvent e)
+			{
+				fillLootTable();
+			}
+
+			@Override
+			public void removeUpdate(javax.swing.event.DocumentEvent e)
+			{
+				fillLootTable();
+			}
+
+			@Override
+			public void changedUpdate(javax.swing.event.DocumentEvent e)
+			{
+				fillLootTable();
+			}
+		});
+		search.add(lootSearch, BorderLayout.CENTER);
+		search.add(Ui.button("Clear", () -> lootSearch.setText("")), BorderLayout.EAST);
+		JPanel list = new JPanel(new BorderLayout(0, 8));
+		list.setOpaque(false);
+		list.add(search, BorderLayout.NORTH);
+		list.add(tableScroll, BorderLayout.CENTER);
+		addRow(p, cardWithTitle(lootTableTitle, list), 290);
+
+		// Everything one source has given, below the list
+		JPanel detail = new JPanel(new BorderLayout(0, 8));
+		detail.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		detail.setBorder(new EmptyBorder(10, 12, 10, 12));
+		JPanel head = new JPanel(new BorderLayout(8, 0));
+		head.setOpaque(false);
+		lootDetailTitle.setFont(FontManager.getRunescapeBoldFont());
+		lootDetailTitle.setForeground(Ui.GOLD);
+		head.add(lootDetailTitle, BorderLayout.CENTER);
+		JPanel headButtons = new JPanel(new GridLayout(1, 2, 6, 0));
+		headButtons.setOpaque(false);
+		lootScopeBox.addActionListener(e -> renderLootDetail());
+		headButtons.add(lootScopeBox);
+		headButtons.add(lootChartButton);
+		head.add(headButtons, BorderLayout.EAST);
+		detail.add(head, BorderLayout.NORTH);
+
+		lootDetailTiles.setOpaque(false);
+		lootDetailTiles.setPreferredSize(new Dimension(600, 70));
+		JTable items = new JTable(lootItemsModel);
+		numberTable(items);
+		JScrollPane itemsScroll = new JScrollPane(items);
+		itemsScroll.setPreferredSize(new Dimension(300, 300));
+		JPanel body = new JPanel(new BorderLayout(0, 8));
+		body.setOpaque(false);
+		body.add(lootDetailTiles, BorderLayout.NORTH);
+		body.add(itemsScroll, BorderLayout.CENTER);
+		detail.add(body, BorderLayout.CENTER);
+		addRow(p, detail, 440);
+		renderLootDetail();
+		return p;
+	}
+
+	/**
+	 * Sortable, with {@link LootCell} numbers right-aligned and shown formatted.
+	 */
+	private static void numberTable(JTable table)
+	{
+		table.setAutoCreateRowSorter(true);
+		table.setFillsViewportHeight(true);
+		table.setRowHeight(20);
+		table.setDefaultRenderer(LootCell.class, new javax.swing.table.DefaultTableCellRenderer()
+		{
+			@Override
+			protected void setValue(Object value)
+			{
+				setHorizontalAlignment(RIGHT);
+				setText(value == null ? "" : value.toString());
+			}
+		});
+	}
+
+	/**
+	 * Shows a source's items, from a click on a chart bar.
+	 */
+	private void selectLootSource(String source)
+	{
+		for (int i = 0; i < lootTable.getRowCount(); i++)
+		{
+			if (source.equals(lootModel.getValueAt(lootTable.convertRowIndexToModel(i), 0)))
+			{
+				lootTable.setRowSelectionInterval(i, i);
+				lootTable.scrollRectToVisible(lootTable.getCellRect(i, 0, true));
+				return;
+			}
+		}
+	}
+
+	private void renderLootDetail()
+	{
+		lootItemsModel.setRowCount(0);
+		lootDetailTiles.removeAll();
+		lootChartButton.setEnabled(lootSource != null);
+		if (lootSource == null)
+		{
+			lootDetailTitle.setText("Click a source above to see everything it has given you");
+			lootDetailTiles.revalidate();
+			lootDetailTiles.repaint();
+			return;
+		}
+
+		boolean allTime = "All time".equals(lootScopeBox.getSelectedItem());
+		List<DayRecord> scope = allTime ? service.daysBetween(service.firstDay(), LocalDate.now()) : days;
+		LootReport.SourceDetail d = LootReport.detail(scope, lootSource);
+		// Found by an item: list just the matching items
+		LootReport.Match match = lootMatches.get(lootSource);
+		String itemFilter = match != null && !match.isBySource() ? lootSearch.getText().trim() : "";
+		lootDetailTitle.setText((itemFilter.isEmpty() ? "Everything from " : "Items matching \"" + itemFilter + "\" from ")
+			+ lootSource + (allTime ? " (all time)" : " (this period)"));
+
+		lootDetailTiles.add(tile("Total", Format.compact(d.getTotal()) + " gp", null, null));
+		lootDetailTiles.add(tile("Kills / trips", Format.number(d.getTimes()), null, null));
+		lootDetailTiles.add(tile("Average each",
+			d.getTimes() > 0 ? Format.compact(Math.round((double) d.getTotal() / d.getTimes())) + " gp" : "-", null, null));
+		String seen = d.getFirstDay() == null ? "-"
+			: d.getFirstDay().equals(d.getLastDay()) ? Format.date(LocalDate.parse(d.getFirstDay()))
+			: Format.date(LocalDate.parse(d.getFirstDay())) + " - " + Format.date(LocalDate.parse(d.getLastDay()));
+		lootDetailTiles.add(tile("Seen", seen, null, null));
+
+		for (LootReport.ItemRow r : d.getItems())
+		{
+			if (!LootReport.itemMatches(r.getName(), itemFilter))
+			{
+				continue;
+			}
+			lootItemsModel.addRow(new Object[]{
+				r.getName(),
+				LootCell.count(r.getQuantity()),
+				LootCell.gp(r.getValue()),
+				LootCell.gp(r.getPerTime()),
+				LootCell.percent(r.getShare()),
+			});
+		}
+		lootDetailTiles.revalidate();
+		lootDetailTiles.repaint();
+	}
+
+	private void renderLoot()
+	{
+		List<LootReport.Row> rows = LootReport.build(days, previousDays,
+			source -> service.isPersonalKillTime(source) ? service.minutesPerKill(source) : Double.NaN);
+
+		long total = rows.stream().mapToLong(LootReport.Row::getTotal).sum();
+		long previous = rows.stream().mapToLong(LootReport.Row::getPreviousTotal).sum();
+		lootTiles.removeAll();
+		double change = previous > 0 ? (double) (total - previous) / previous : Double.NaN;
+		lootTiles.add(tile("Total loot", Format.compact(total) + " gp",
+			Double.isNaN(change) ? " " : signedPercent(change) + " vs previous",
+			Double.isNaN(change) ? Ui.MUTED : change >= 0 ? Ui.GOOD : Ui.BAD));
+		LootReport.Row top = rows.isEmpty() ? null : rows.get(0);
+		lootTiles.add(tile("Most lucrative", top == null ? "-" : top.getSource(),
+			top == null ? " " : Format.compact(top.getTotal()) + " gp", Ui.MUTED));
+		LootReport.Row bestEach = rows.stream().filter(r -> r.getTimes() > 1)
+			.max((a, b) -> Double.compare(a.getPerTime(), b.getPerTime())).orElse(null);
+		lootTiles.add(tile("Best per kill / trip", bestEach == null ? "-" : bestEach.getSource(),
+			bestEach == null ? " " : Format.compact(Math.round(bestEach.getPerTime())) + " gp each", Ui.MUTED));
+		LootReport.Row bestRate = rows.stream().filter(r -> !Double.isNaN(r.getGpPerHour()))
+			.max((a, b) -> Double.compare(a.getGpPerHour(), b.getGpPerHour())).orElse(null);
+		lootTiles.add(tile("Best GP / hour", bestRate == null ? "-" : bestRate.getSource(),
+			bestRate == null ? "Needs a few timed kills" : Format.compact(Math.round(bestRate.getGpPerHour())) + " gp/hr", Ui.MUTED));
+
+		lootTotals.setData(rows.stream()
+			.map(r -> new Analytics.Entry(r.getSource(), r.getSource(), r.getTotal()))
+			.collect(Collectors.toList()), Unit.GP, color(Metric.LOOT));
+		lootPerKill.setData(rows.stream()
+			.filter(r -> r.getTimes() > 1)
+			.sorted((a, b) -> Double.compare(b.getPerTime(), a.getPerTime()))
+			.map(r -> new Analytics.Entry(r.getSource(), r.getSource(), r.getPerTime()))
+			.collect(Collectors.toList()), Unit.GP, color(Metric.LOOT));
+
+		lootRows = rows;
+		fillLootTable();
+	}
+
+	/**
+	 * Lists the sources that match the search, keeping the chosen one selected.
+	 */
+	private void fillLootTable()
+	{
+		String search = lootSearch.getText();
+		lootMatches.clear();
+		lootModel.setRowCount(0);
+		for (LootReport.Row r : lootRows)
+		{
+			LootReport.Match match = LootReport.match(r, search);
+			if (match == null)
+			{
+				continue;
+			}
+			lootMatches.put(r.getSource(), match);
+			lootModel.addRow(new Object[]{
+				r.getSource(),
+				LootCell.count(r.getTimes()),
+				LootCell.gp(r.getTotal()),
+				LootCell.gp(r.getPerTime()),
+				LootCell.percent(r.getShare()),
+				LootCell.gp(r.getGpPerHour()),
+				r.getPreviousTotal() > 0 ? LootCell.change((double) (r.getTotal() - r.getPreviousTotal()) / r.getPreviousTotal()) : LootCell.gp(Double.NaN),
+				match.isBySource() ? bestItemText(r) : matchText(r, match),
+			});
+		}
+
+		int shown = lootModel.getRowCount();
+		boolean searching = !search.trim().isEmpty();
+		lootTableTitle.setText(!searching ? "All sources (click for every item, double-click to chart)"
+			: shown == 0 ? "No sources or items match \"" + search.trim() + "\" in this period"
+			: shown + " of " + lootRows.size() + (lootRows.size() == 1 ? " source matches" : " sources match") + " \"" + search.trim() + "\"");
+
+		// Keep showing the chosen source when the period or search changes
+		if (lootSource != null)
+		{
+			selectLootSource(lootSource);
+		}
+		renderLootDetail();
+	}
+
+	private static String bestItemText(LootReport.Row r)
+	{
+		return r.getBestItem() == null ? "" : r.getBestItem() + " (" + Format.compact(r.getBestItemValue()) + ")";
+	}
+
+	/**
+	 * The items that made a source match, e.g. "Match: Rune chainbody x3 (88k), Rune 2h sword x1 (38k)".
+	 */
+	private static String matchText(LootReport.Row r, LootReport.Match match)
+	{
+		StringBuilder sb = new StringBuilder("Match: ");
+		int shown = Math.min(2, match.getItems().size());
+		for (int i = 0; i < shown; i++)
+		{
+			String name = match.getItems().get(i);
+			ItemTotal t = r.getItems().get(name);
+			sb.append(i > 0 ? ", " : "").append(name).append(" x").append(Format.number(t.getQuantity()))
+				.append(" (").append(Format.compact(t.getValue())).append(')');
+		}
+		if (match.getItems().size() > shown)
+		{
+			sb.append(" +").append(match.getItems().size() - shown).append(" more");
+		}
+		return sb.toString();
+	}
+
+	/**
+	 * A sortable number in the loot table that knows how to display itself.
+	 */
+	private static final class LootCell extends Number implements Comparable<LootCell>
+	{
+		private final double value;
+		private final String text;
+
+		private LootCell(double value, String text)
+		{
+			this.value = value;
+			this.text = text;
+		}
+
+		static LootCell count(long n)
+		{
+			return new LootCell(n, Format.number(n));
+		}
+
+		static LootCell gp(double v)
+		{
+			// Unknown values sort below everything
+			return Double.isNaN(v) ? new LootCell(Double.NEGATIVE_INFINITY, "-") : new LootCell(v, Format.compact(Math.round(v)));
+		}
+
+		static LootCell percent(double fraction)
+		{
+			return new LootCell(fraction, String.format(Locale.ENGLISH, "%.1f%%", fraction * 100));
+		}
+
+		static LootCell change(double fraction)
+		{
+			return new LootCell(fraction, signedPercent(fraction));
+		}
+
+		@Override
+		public int compareTo(LootCell o)
+		{
+			return Double.compare(value, o.value);
+		}
+
+		@Override
+		public int intValue()
+		{
+			return (int) value;
+		}
+
+		@Override
+		public long longValue()
+		{
+			return (long) value;
+		}
+
+		@Override
+		public float floatValue()
+		{
+			return (float) value;
+		}
+
+		@Override
+		public double doubleValue()
+		{
+			return value;
+		}
+
+		@Override
+		public String toString()
+		{
+			return text;
+		}
+	}
+
 	// ------------------------------------------------------------------
 	// Data
 	// ------------------------------------------------------------------
@@ -597,6 +1034,7 @@ class ReportWindow extends JFrame
 					}
 					break;
 				case BOSS:
+				case SOURCE:
 					keys.forEach(k -> filterBox.addItem(new FilterOption(k, k)));
 					break;
 				default:
@@ -678,6 +1116,7 @@ class ReportWindow extends JFrame
 		}
 		renderExplore();
 		renderOverview();
+		renderLoot();
 		renderRecords();
 		revalidate();
 		repaint();

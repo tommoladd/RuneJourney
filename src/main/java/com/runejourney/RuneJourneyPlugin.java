@@ -11,6 +11,7 @@ import com.runejourney.model.ClogItem;
 import com.runejourney.ui.Icons;
 import com.runejourney.ui.RuneJourneyOverlay;
 import com.runejourney.ui.ReportWindowManager;
+import com.runejourney.ui.ScreenshotWindowManager;
 import com.runejourney.ui.RuneJourneyPanel;
 import com.runejourney.wrapped.WrappedPlayer;
 import java.io.IOException;
@@ -34,7 +35,6 @@ import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.GrandExchangeOfferState;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
-import net.runelite.api.ItemContainer;
 import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
@@ -45,6 +45,7 @@ import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.GrandExchangeOfferChanged;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
@@ -52,7 +53,6 @@ import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
-import net.runelite.api.gameval.ItemID;
 import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.api.gameval.VarbitID;
 import net.runelite.client.config.ConfigManager;
@@ -118,7 +118,16 @@ public class RuneJourneyPlugin extends Plugin
 	private IncomeTracker incomeTracker;
 
 	@Inject
+	private SupplyTracker supplyTracker;
+
+	@Inject
+	private WealthTracker wealthTracker;
+
+	@Inject
 	private ReportWindowManager reportWindows;
+
+	@Inject
+	private ScreenshotWindowManager screenshotWindows;
 
 	@Inject
 	private OverlayManager overlayManager;
@@ -185,7 +194,10 @@ public class RuneJourneyPlugin extends Plugin
 		overlayManager.remove(overlay);
 		overlay.setData(null);
 		reportWindows.close();
+		screenshotWindows.close();
 		incomeTracker.reset();
+		supplyTracker.reset();
+		wealthTracker.reset();
 		lastStatXp.clear();
 		pendingOffers.clear();
 		// Finish the play session first so its records are included in the final save
@@ -233,6 +245,8 @@ public class RuneJourneyPlugin extends Plugin
 		else if (event.getGameState() == GameState.LOGIN_SCREEN)
 		{
 			incomeTracker.reset();
+			supplyTracker.reset();
+			wealthTracker.reset();
 			lastStatXp.clear();
 			pendingOffers.clear();
 			// The in-game view can't show on the login screen
@@ -371,6 +385,10 @@ public class RuneJourneyPlugin extends Plugin
 		}
 
 		incomeTracker.onTick(tick);
+		if (client.getGameState() == GameState.LOGGED_IN)
+		{
+			wealthTracker.onTick();
+		}
 		service.onTick(tick);
 		screenshots.onTick(tick);
 
@@ -462,17 +480,8 @@ public class RuneJourneyPlugin extends Plugin
 		service.onCounter(Counters.QUEST_POINTS, client.getVarpValue(VarPlayerID.QP));
 		service.onCounter(Counters.COLLECTION_LOG, client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
 		CLUE_VARBITS.forEach((varbit, tier) -> service.onCounter(Counters.clues(tier), client.getVarbitValue(varbit)));
-		ItemContainer inventory = client.getItemContainer(InventoryID.INV);
-		if (inventory != null)
-		{
-			service.onCash(false, cash(inventory));
-			service.onWealth("inventory", value(inventory));
-		}
-		ItemContainer worn = client.getItemContainer(InventoryID.WORN);
-		if (worn != null)
-		{
-			service.onWealth("equipment", value(worn));
-		}
+		// Price the bank and anything else held since last time, even if it hasn't been opened yet
+		wealthTracker.invalidate();
 	}
 
 	@Subscribe
@@ -503,25 +512,15 @@ public class RuneJourneyPlugin extends Plugin
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		if (event.getContainerId() == InventoryID.INV)
+		// Net worth and cash are read by WealthTracker each tick, not from these events
+		int id = event.getContainerId();
+		if (id == InventoryID.INV)
 		{
 			incomeTracker.onInventory(event.getItemContainer());
-			service.onCash(false, cash(event.getItemContainer()));
-			service.onWealth("inventory", value(event.getItemContainer()));
+			incomeTracker.discard(supplyTracker.onInventory(event.getItemContainer(), client.getTickCount()));
 			return;
 		}
-		if (event.getContainerId() == InventoryID.BANK)
-		{
-			service.onCash(true, cash(event.getItemContainer()));
-			service.onWealth("bank", value(event.getItemContainer()));
-			return;
-		}
-		if (event.getContainerId() == InventoryID.WORN)
-		{
-			service.onWealth("equipment", value(event.getItemContainer()));
-			return;
-		}
-		if (event.getContainerId() != InventoryID.TRAIL_REWARDINV)
+		if (id != InventoryID.TRAIL_REWARDINV)
 		{
 			return;
 		}
@@ -534,26 +533,6 @@ public class RuneJourneyPlugin extends Plugin
 			}
 		}
 		service.onClueReward(priced(stacks), client.getTickCount());
-	}
-
-	/**
-	 * Coins plus platinum tokens (worth 1,000 each) in a container, in gp.
-	 */
-	private static long cash(ItemContainer container)
-	{
-		long gp = 0;
-		for (Item item : container.getItems())
-		{
-			if (item.getId() == ItemID.COINS)
-			{
-				gp += item.getQuantity();
-			}
-			else if (item.getId() == ItemID.PLATINUM)
-			{
-				gp += item.getQuantity() * 1000L;
-			}
-		}
-		return gp;
 	}
 
 	@Subscribe
@@ -583,37 +562,6 @@ public class RuneJourneyPlugin extends Plugin
 			offer.getQuantitySold(), offer.getSpent());
 	}
 
-	/**
-	 * GE value of a container, with coins and platinum tokens at face value.
-	 */
-	private long value(ItemContainer container)
-	{
-		if (!config.trackWealth())
-		{
-			return 0;
-		}
-		long total = 0;
-		for (Item item : container.getItems())
-		{
-			if (item.getId() <= 0 || item.getQuantity() <= 0)
-			{
-				continue;
-			}
-			if (item.getId() == ItemID.COINS)
-			{
-				total += item.getQuantity();
-			}
-			else if (item.getId() == ItemID.PLATINUM)
-			{
-				total += item.getQuantity() * 1000L;
-			}
-			else
-			{
-				total += (long) itemManager.getItemPrice(itemManager.canonicalize(item.getId())) * item.getQuantity();
-			}
-		}
-		return total;
-	}
 
 	@Subscribe
 	public void onScriptPostFired(ScriptPostFired event)
@@ -770,6 +718,12 @@ public class RuneJourneyPlugin extends Plugin
 		{
 			service.onDeath(client.getTickCount());
 		}
+	}
+
+	@Subscribe
+	public void onMenuOptionClicked(MenuOptionClicked event)
+	{
+		supplyTracker.onMenuOptionClicked(event.getMenuOption(), event.getItemId(), client.getTickCount());
 	}
 
 	@Subscribe

@@ -20,7 +20,7 @@ public enum Unit
 			case GP:
 				return Format.compact(Math.round(v)) + " gp";
 			case HOURS:
-				return v <= 0 ? "0m" : Format.hours(v);
+				return v <= 0 ? "0 min" : Format.hours(v);
 			case RATE:
 				return Format.compact(Math.round(v)) + "/hr";
 			default:

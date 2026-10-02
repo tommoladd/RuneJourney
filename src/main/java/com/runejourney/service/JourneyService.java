@@ -9,7 +9,9 @@ import com.runejourney.model.Goal;
 import com.runejourney.model.GoalItem;
 import com.runejourney.model.GoalSession;
 import com.runejourney.model.GoalType;
+import com.runejourney.model.ItemTotal;
 import com.runejourney.model.JourneyEvent;
+import com.runejourney.model.LootSource;
 import com.runejourney.model.ObservedRate;
 import com.runejourney.model.ProfileData;
 import com.runejourney.planner.BossData;
@@ -98,6 +100,7 @@ public class JourneyService implements RateSource
 	private final ChatMessageManager chatMessageManager;
 	private final TrainingMethods trainingMethods;
 	private final BossData bossData;
+	private final Encouragement encouragement = new Encouragement(new java.util.Random());
 
 	@Getter
 	private volatile String profileKey;
@@ -191,8 +194,29 @@ public class JourneyService implements RateSource
 		days.putAll(loaded.getDays());
 		dirtyDays.clear();
 		cleanEventText();
+		migrateWealth();
 		resetSessionState();
 		changed(true);
+	}
+
+	/**
+	 * Profiles saved before item holdings were tracked only have a value per container. Keep the
+	 * last bank value until the bank is next opened; inventory and equipment are re-read on login.
+	 */
+	private void migrateWealth()
+	{
+		if (profile.getWealthParts().isEmpty() && profile.isBankValueKnown() && profile.getBankValue() > 0)
+		{
+			profile.getWealthParts().put(BANK, profile.getBankValue());
+			profileDirty = true;
+		}
+		if (profile.getBankValue() != 0 || profile.getInventoryValue() != 0 || profile.getEquipmentValue() != 0)
+		{
+			profile.setBankValue(0);
+			profile.setInventoryValue(0);
+			profile.setEquipmentValue(0);
+			profileDirty = true;
+		}
 	}
 
 	/**
@@ -218,33 +242,64 @@ public class JourneyService implements RateSource
 	// Wealth
 	// ------------------------------------------------------------------
 
+	public static final String BANK = "bank";
+
 	private long netWorth()
 	{
-		return profile.getBankValue() + profile.getInventoryValue() + profile.getEquipmentValue();
+		return profile.getWealthParts().values().stream().mapToLong(Long::longValue).sum();
 	}
 
 	/**
-	 * GE value of a container: "bank" (only visible while open), "inventory" or "equipment".
+	 * The items last seen in one container. The bank is only visible while it's open; the rest
+	 * update as they change.
 	 */
-	public synchronized void onWealth(String part, long value)
+	public synchronized void onHoldings(String part, Map<Integer, Integer> items)
 	{
 		if (profile == null || !config.trackWealth())
 		{
 			return;
 		}
+		profile.getHoldings().put(part, new HashMap<>(items));
+		profileDirty = true;
+	}
+
+	/**
+	 * A copy of everything the account was last seen holding, for pricing.
+	 */
+	public synchronized Map<String, Map<Integer, Integer>> holdings()
+	{
+		Map<String, Map<Integer, Integer>> copy = new HashMap<>();
+		if (profile != null)
+		{
+			profile.getHoldings().forEach((part, items) -> copy.put(part, new HashMap<>(items)));
+		}
+		return copy;
+	}
+
+	/**
+	 * GE value of one container.
+	 */
+	public synchronized void onWealth(String part, long value)
+	{
+		onWealth(Collections.singletonMap(part, value));
+	}
+
+	/**
+	 * GE value of several containers at once. Pass every container that changed together (e.g.
+	 * an item moving from the bank to equipment) so the total is never counted mid-move.
+	 */
+	public synchronized void onWealth(Map<String, Long> parts)
+	{
+		if (profile == null || !config.trackWealth() || parts.isEmpty())
+		{
+			return;
+		}
 		boolean knownBefore = profile.isBankValueKnown();
 		long before = netWorth();
-		switch (part)
+		profile.getWealthParts().putAll(parts);
+		if (parts.containsKey(BANK))
 		{
-			case "bank":
-				profile.setBankValue(value);
-				profile.setBankValueKnown(true);
-				break;
-			case "inventory":
-				profile.setInventoryValue(value);
-				break;
-			default:
-				profile.setEquipmentValue(value);
+			profile.setBankValueKnown(true);
 		}
 		long now = netWorth();
 		if (now == before && knownBefore)
@@ -1175,6 +1230,14 @@ public class JourneyService implements RateSource
 		}
 
 		xpMilestones(skill, old, newXp);
+		if (config.encouragement())
+		{
+			long gap = Encouragement.interval(config, skill);
+			if (Encouragement.crossed(gap, old, newXp))
+			{
+				say(encouragement.message(skill, gap, newXp));
+			}
+		}
 
 		checkDailyRecord(d.getXpGained(), profile.getBestXpDay(), XP_RECORD_TITLE, Format.compact(d.getXpGained()) + " XP");
 		profile.setBestXpDay(Math.max(profile.getBestXpDay(), d.getXpGained()));
@@ -1402,11 +1465,39 @@ public class JourneyService implements RateSource
 			}
 		}
 		itemsObtained(items, source);
+		addLootSource(d, source, items, total);
 		long before = d.getLootValue();
 		d.setLootValue(before + total);
 		checkDailyRecord(d.getLootValue(), profile.getBestLootDay(), LOOT_RECORD_TITLE, Format.compact(d.getLootValue()) + " gp");
 		profile.setBestLootDay(Math.max(profile.getBestLootDay(), d.getLootValue()));
 		profileDirty = true;
+		changed(false);
+	}
+
+	private static void addLootSource(DayRecord d, String source, List<LootItem> items, long total)
+	{
+		LootSource s = d.getLootBySource().computeIfAbsent(source != null ? source : "Unknown source", k -> new LootSource());
+		s.setTimes(s.getTimes() + 1);
+		s.setValue(s.getValue() + total);
+		for (LootItem item : items)
+		{
+			String name = item.getName() != null ? item.getName() : "Item " + item.getId();
+			s.getItems().computeIfAbsent(name, k -> new ItemTotal()).add(item.getQuantity(), item.getValue());
+		}
+	}
+
+	/**
+	 * Food eaten or a potion dose drunk, valued at what was used up (leftovers already deducted).
+	 */
+	public synchronized void onSupplyUsed(String name, int quantity, long value)
+	{
+		if (profile == null || !config.trackSupplies() || value <= 0)
+		{
+			return;
+		}
+		DayRecord d = today();
+		d.setSuppliesCost(d.getSuppliesCost() + value);
+		d.getSuppliesUsed().computeIfAbsent(name, k -> new ItemTotal()).add(quantity, value);
 		changed(false);
 	}
 
@@ -1702,7 +1793,9 @@ public class JourneyService implements RateSource
 			}
 			d.setLootValue(d.getLootValue() + value);
 			d.setClueLootValue(d.getClueLootValue() + value);
-			itemsObtained(c.items, tier != null ? tier + " clue" : "Clue scroll");
+			String source = tier != null ? tier + " clue" : "Clue scroll";
+			itemsObtained(c.items, source);
+			addLootSource(d, source, c.items, value);
 		}
 
 		boolean valuable = best != null && best.getValue() >= config.valuableDropThreshold();
@@ -1797,9 +1890,81 @@ public class JourneyService implements RateSource
 		}
 	}
 
+	/**
+	 * Journey events that have a screenshot, by screenshot file name.
+	 */
+	public synchronized Map<String, JourneyEvent> screenshotEvents()
+	{
+		Map<String, JourneyEvent> result = new HashMap<>();
+		for (DayRecord d : days.values())
+		{
+			for (JourneyEvent e : d.getEvents())
+			{
+				if (e.getScreenshot() != null)
+				{
+					result.put(e.getScreenshot(), copy(e));
+				}
+			}
+		}
+		return result;
+	}
+
+	/**
+	 * A screenshot file was deleted: stop its Journey entries linking to it.
+	 */
+	public synchronized void forgetScreenshot(String name)
+	{
+		for (DayRecord d : days.values())
+		{
+			for (JourneyEvent e : d.getEvents())
+			{
+				if (name.equals(e.getScreenshot()))
+				{
+					e.setScreenshot(null);
+					dirtyDays.add(d.getDate());
+				}
+			}
+		}
+		changed(true);
+	}
+
+	/**
+	 * Adds, changes or (with a blank note) removes the player's note on a Journey event.
+	 */
+	public synchronized void setEventNote(String date, long time, String title, String note)
+	{
+		DayRecord d = days.get(date);
+		if (d == null)
+		{
+			return;
+		}
+		String text = note == null || note.trim().isEmpty() ? null : note.trim();
+		for (JourneyEvent e : d.getEvents())
+		{
+			if (e.getTime() == time && title.equals(e.getTitle()))
+			{
+				e.setNote(text);
+				dirtyDays.add(date);
+				changed(true);
+				return;
+			}
+		}
+	}
+
 	private void announce(String message)
 	{
-		if (!config.chatAnnouncements())
+		if (config.chatAnnouncements())
+		{
+			say(message);
+		}
+	}
+
+	/**
+	 * A "[RuneJourney] ..." message in the chatbox.
+	 */
+	private void say(String message)
+	{
+		if (chatMessageManager == null)
 		{
 			return;
 		}
@@ -2659,6 +2824,13 @@ public class JourneyService implements RateSource
 		c.setClueLootValue(d.getClueLootValue());
 		c.setSkillingIncome(d.getSkillingIncome());
 		c.setSkillingIncomeBySkill(new HashMap<>(d.getSkillingIncomeBySkill()));
+		Map<String, LootSource> sources = new HashMap<>();
+		d.getLootBySource().forEach((k, v) -> sources.put(k, v.copy()));
+		c.setLootBySource(sources);
+		c.setSuppliesCost(d.getSuppliesCost());
+		Map<String, ItemTotal> supplies = new HashMap<>();
+		d.getSuppliesUsed().forEach((k, v) -> supplies.put(k, new ItemTotal(v.getQuantity(), v.getValue())));
+		c.setSuppliesUsed(supplies);
 		c.setOfflineXp(d.getOfflineXp());
 		c.setOfflineSkillXp(new HashMap<>(d.getOfflineSkillXp()));
 		c.setCombatTasks(d.getCombatTasks());
@@ -2704,6 +2876,9 @@ public class JourneyService implements RateSource
 			r.setClueLootValue(r.getClueLootValue() + d.getClueLootValue());
 			r.setSkillingIncome(r.getSkillingIncome() + d.getSkillingIncome());
 			d.getSkillingIncomeBySkill().forEach((k, v) -> r.getSkillingIncomeBySkill().merge(k, v, Long::sum));
+			d.getLootBySource().forEach((k, v) -> r.getLootBySource().computeIfAbsent(k, x -> new LootSource()).add(v));
+			r.setSuppliesCost(r.getSuppliesCost() + d.getSuppliesCost());
+			d.getSuppliesUsed().forEach((k, v) -> r.getSuppliesUsed().computeIfAbsent(k, x -> new ItemTotal()).add(v.getQuantity(), v.getValue()));
 			r.setCombatTasks(r.getCombatTasks() + d.getCombatTasks());
 			r.setCombatTaskPoints(r.getCombatTaskPoints() + d.getCombatTaskPoints());
 			d.getClues().forEach((k, v) -> r.getClues().merge(k, v, Integer::sum));
@@ -2838,7 +3013,9 @@ public class JourneyService implements RateSource
 
 	private JourneyEvent copy(JourneyEvent e)
 	{
-		return new JourneyEvent(e.getTime(), e.getType(), e.getTitle(), e.getDetail(), e.getSkill(), e.getScreenshot(), e.isHighlight(), e.getValue());
+		JourneyEvent c = new JourneyEvent(e.getTime(), e.getType(), e.getTitle(), e.getDetail(), e.getSkill(), e.getScreenshot(), e.isHighlight(), e.getValue());
+		c.setNote(e.getNote());
+		return c;
 	}
 
 	/**
@@ -2968,8 +3145,8 @@ public class JourneyService implements RateSource
 			{
 				double mins = e.getValue().getMillis() / 60_000d / e.getValue().getXp();
 				double typical = bossData.minutesPerKill(e.getKey());
-				rates.add(new Suggestion(e.getKey() + ": " + formatMinutes(mins) + " per kill",
-					"From " + e.getValue().getXp() + " timed kills" + (typical > 0 ? " · typical " + formatMinutes(typical) : ""), null, -1));
+				rates.add(new Suggestion(e.getKey() + ": " + Format.clock(mins) + " per kill",
+					"From " + e.getValue().getXp() + " timed kills" + (typical > 0 ? " · typical " + Format.clock(typical) : ""), null, -1));
 			});
 		sections.put("Your rates", rates);
 		return sections;
@@ -2978,15 +3155,6 @@ public class JourneyService implements RateSource
 	private static String unitText(String counter, long value)
 	{
 		return Counters.isMoney(counter) ? Counters.format(counter, value) : value + " " + Counters.unit(counter);
-	}
-
-	private static String formatMinutes(double minutes)
-	{
-		if (minutes >= 60)
-		{
-			return Format.hours(minutes / 60);
-		}
-		return String.format(java.util.Locale.ENGLISH, minutes < 10 ? "%.1fm" : "%.0fm", minutes);
 	}
 
 	/**
@@ -3026,7 +3194,7 @@ public class JourneyService implements RateSource
 			{
 				detail.append(" · ").append(toNext).append(" to ").append(Format.number(next)).append(" KC");
 			}
-			detail.append(" · ").append(formatMinutes(perKill)).append("/kill").append(isPersonalKillTime(boss) ? " (yours)" : "");
+			detail.append(" · ").append(Format.clock(perKill)).append(" per kill").append(isPersonalKillTime(boss) ? " (yours)" : "");
 
 			int recentKills = recent.getOrDefault(boss, 0);
 			double score = recentKills + (toNext <= fit ? 50 : 0) + Math.log1p(kc.getValue());

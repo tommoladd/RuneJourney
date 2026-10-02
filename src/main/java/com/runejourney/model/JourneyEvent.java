@@ -1,12 +1,10 @@
 package com.runejourney.model;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
 public class JourneyEvent
 {
 	/**
@@ -32,4 +30,21 @@ public class JourneyEvent
 	 * GP value associated with the event (drops), used to rank "best moments".
 	 */
 	private long value;
+	/**
+	 * The player's own note about this moment, added from the Journey.
+	 */
+	private String note;
+
+	public JourneyEvent(long time, EventType type, String title, String detail, String skill, String screenshot,
+		boolean highlight, long value)
+	{
+		this.time = time;
+		this.type = type;
+		this.title = title;
+		this.detail = detail;
+		this.skill = skill;
+		this.screenshot = screenshot;
+		this.highlight = highlight;
+		this.value = value;
+	}
 }

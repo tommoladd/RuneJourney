@@ -1,6 +1,8 @@
 package com.runejourney.service;
 
+import com.runejourney.model.ItemTotal;
 import com.runejourney.model.JourneyEvent;
+import com.runejourney.model.LootSource;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,6 +41,9 @@ public class RangeSummary
 	private long clueLootValue;
 	private long skillingIncome;
 	private Map<String, Long> skillingIncomeBySkill = new HashMap<>();
+	private Map<String, LootSource> lootBySource = new HashMap<>();
+	private long suppliesCost;
+	private Map<String, ItemTotal> suppliesUsed = new HashMap<>();
 	private int combatTasks;
 	private int combatTaskPoints;
 	private Map<String, Integer> clues = new HashMap<>();

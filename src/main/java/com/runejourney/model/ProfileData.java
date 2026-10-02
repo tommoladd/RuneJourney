@@ -45,9 +45,19 @@ public class ProfileData
 	 */
 	private Map<Integer, long[]> geSlots = new HashMap<>();
 
-	// Wealth: GE value of the bank (seen when open), inventory and worn equipment
-	private long bankValue;
+	/**
+	 * Every item the account was last seen holding, by container ("bank", "inventory",
+	 * "equipment", "looting bag", "seed vault"): canonical item id to quantity. Kept between
+	 * sessions so the bank counts towards net worth without opening it first.
+	 */
+	private Map<String, Map<Integer, Integer>> holdings = new HashMap<>();
+	/**
+	 * GE value of each container in {@link #holdings} when it was last priced.
+	 */
+	private Map<String, Long> wealthParts = new HashMap<>();
 	private boolean bankValueKnown;
+	// Before holdings were tracked: read once to seed wealthParts, then cleared
+	private long bankValue;
 	private long inventoryValue;
 	private long equipmentValue;
 	/**

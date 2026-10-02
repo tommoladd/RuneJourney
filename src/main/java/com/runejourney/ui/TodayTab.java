@@ -1,6 +1,8 @@
 package com.runejourney.ui;
 
+import com.runejourney.model.ItemTotal;
 import com.runejourney.model.JourneyEvent;
+import com.runejourney.model.LootSource;
 import com.runejourney.planner.GoalPlanner;
 import com.runejourney.planner.Skills;
 import com.runejourney.service.JourneyService;
@@ -70,6 +72,10 @@ class TodayTab extends RefreshableTab
 	private final JPanel body = Ui.stack(4);
 	private static final java.time.format.DateTimeFormatter MENU_DATE =
 		java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH);
+	/**
+	 * Rows shown in the loot and supplies cards before the rest are summed as "Other".
+	 */
+	private static final int BREAKDOWN_ROWS = 8;
 	private LocalDate customFrom = LocalDate.now().minusDays(6);
 	private LocalDate customTo = LocalDate.now();
 	private Range lastRange = Range.TODAY;
@@ -256,10 +262,17 @@ class TodayTab extends RefreshableTab
 		stats.add(Ui.stat("XP gained", Format.number(r.getXpGained())));
 		stats.add(Ui.stat("Levels gained", Format.number(r.getLevelsGained())));
 		stats.add(Ui.stat("Loot", Format.compact(r.getLootValue()) + " gp"));
+		long income = r.getLootValue() + r.getSkillingIncome();
 		if (r.getSkillingIncome() != 0)
 		{
 			stats.add(Ui.stat("Skilling income", Format.compact(r.getSkillingIncome()) + " gp"));
-			stats.add(Ui.stat("Total income", Format.compact(r.getLootValue() + r.getSkillingIncome()) + " gp", Ui.GOOD));
+			stats.add(Ui.stat("Total income", Format.compact(income) + " gp", Ui.GOOD));
+		}
+		if (r.getSuppliesCost() > 0)
+		{
+			long profit = income - r.getSuppliesCost();
+			stats.add(Ui.stat("Supplies used", "-" + Format.compact(r.getSuppliesCost()) + " gp", Ui.BAD));
+			stats.add(Ui.stat("Profit", (profit > 0 ? "+" : "") + Format.compact(profit) + " gp", profit >= 0 ? Ui.GOOD : Ui.BAD));
 		}
 		stats.add(Ui.stat("Boss kills", Format.number(r.getBossKills())));
 		optional(stats, "Slayer tasks", r.getSlayerTasks());
@@ -404,6 +417,36 @@ class TodayTab extends RefreshableTab
 			body.add(card);
 		}
 
+		if (!r.getLootBySource().isEmpty())
+		{
+			body.add(Ui.header("Loot by source"));
+			JPanel card = Ui.card();
+			List<Map.Entry<String, LootSource>> sources = r.getLootBySource().entrySet().stream()
+				.filter(e -> e.getValue().getValue() > 0)
+				.sorted(Comparator.comparingLong((Map.Entry<String, LootSource> e) -> e.getValue().getValue()).reversed())
+				.collect(Collectors.toList());
+			sources.stream().limit(BREAKDOWN_ROWS).forEach(e ->
+				withTooltip(card, Ui.stat(e.getKey(), Format.compact(e.getValue().getValue()) + " gp"), sourceTooltip(e.getValue())));
+			otherRow(card, sources.stream().skip(BREAKDOWN_ROWS).mapToLong(e -> e.getValue().getValue()).sum(),
+				sources.size() - BREAKDOWN_ROWS, " gp");
+			body.add(card);
+		}
+
+		if (!r.getSuppliesUsed().isEmpty())
+		{
+			body.add(Ui.header("Supplies used"));
+			JPanel card = Ui.card();
+			List<Map.Entry<String, ItemTotal>> supplies = r.getSuppliesUsed().entrySet().stream()
+				.sorted(Comparator.comparingLong((Map.Entry<String, ItemTotal> e) -> e.getValue().getValue()).reversed())
+				.collect(Collectors.toList());
+			supplies.stream().limit(BREAKDOWN_ROWS).forEach(e -> card.add(Ui.stat(
+				e.getKey() + " x" + Format.number(e.getValue().getQuantity()),
+				"-" + Format.compact(e.getValue().getValue()) + " gp", Ui.BAD)));
+			otherRow(card, -supplies.stream().skip(BREAKDOWN_ROWS).mapToLong(e -> e.getValue().getValue()).sum(),
+				supplies.size() - BREAKDOWN_ROWS, " gp");
+			body.add(card);
+		}
+
 		if (multiDay && r.getBiggestDay() != null && r.getBiggestDayXp() > 0)
 		{
 			body.add(Ui.header("Biggest day"));
@@ -413,6 +456,44 @@ class TodayTab extends RefreshableTab
 		}
 
 		rebuild();
+	}
+
+	/**
+	 * Sums up whatever didn't fit in a breakdown card.
+	 */
+	private static void otherRow(JPanel card, long value, int count, String suffix)
+	{
+		if (count > 0)
+		{
+			card.add(Ui.stat("Other (" + count + ")", (value < 0 ? "-" : "") + Format.compact(Math.abs(value)) + suffix,
+				value < 0 ? Ui.BAD : java.awt.Color.WHITE));
+		}
+	}
+
+	private static void withTooltip(JPanel card, JPanel row, String tooltip)
+	{
+		row.setToolTipText(tooltip);
+		for (java.awt.Component c : row.getComponents())
+		{
+			((javax.swing.JComponent) c).setToolTipText(tooltip);
+		}
+		card.add(row);
+	}
+
+	/**
+	 * How often a source paid out and its most valuable items.
+	 */
+	private static String sourceTooltip(LootSource s)
+	{
+		StringBuilder sb = new StringBuilder("<html>").append(Format.number(s.getTimes()))
+			.append(s.getTimes() == 1 ? " time" : " times");
+		s.getItems().entrySet().stream()
+			.filter(e -> e.getValue().getValue() > 0)
+			.sorted(Comparator.comparingLong((Map.Entry<String, ItemTotal> e) -> e.getValue().getValue()).reversed())
+			.limit(5)
+			.forEach(e -> sb.append("<br>").append(Ui.escape(e.getKey())).append(" x").append(Format.number(e.getValue().getQuantity()))
+				.append(": ").append(Format.compact(e.getValue().getValue())).append(" gp"));
+		return sb.append("</html>").toString();
 	}
 
 	private static void optional(JPanel card, String name, int value)

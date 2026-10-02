@@ -2,6 +2,7 @@ package com.runejourney.report;
 
 import com.runejourney.model.DayRecord;
 import com.runejourney.model.EventType;
+import com.runejourney.model.LootSource;
 import com.runejourney.planner.Counters;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -23,8 +24,10 @@ public enum Metric
 	LEVELS("Levels gained", Unit.COUNT, Filter.NONE, false, EnumSet.of(EventType.LEVEL, EventType.TOTAL_LEVEL)),
 	NET_WORTH("Net worth", Unit.GP, Filter.NONE, false, EnumSet.of(EventType.RECORD)),
 	INCOME("Total income", Unit.GP, Filter.NONE, false, EnumSet.of(EventType.DROP, EventType.CLUE)),
-	LOOT("Loot value", Unit.GP, Filter.NONE, false, EnumSet.of(EventType.DROP, EventType.CLUE, EventType.PET)),
+	LOOT("Loot value", Unit.GP, Filter.SOURCE, false, EnumSet.of(EventType.DROP, EventType.CLUE, EventType.PET)),
 	SKILLING_INCOME("Skilling income", Unit.GP, Filter.SKILL, false, EnumSet.noneOf(EventType.class)),
+	SUPPLIES("Supplies used", Unit.GP, Filter.NONE, false, EnumSet.noneOf(EventType.class)),
+	PROFIT("Profit after supplies", Unit.GP, Filter.NONE, false, EnumSet.of(EventType.DROP, EventType.CLUE)),
 	KILLS("Boss kills", Unit.COUNT, Filter.BOSS, false, EnumSet.of(EventType.BOSS_KC, EventType.PERSONAL_BEST)),
 	CLUES("Clues completed", Unit.COUNT, Filter.CLUE_TIER, false, EnumSet.of(EventType.CLUE)),
 	CLUE_LOOT("Clue loot", Unit.GP, Filter.NONE, false, EnumSet.of(EventType.CLUE)),
@@ -45,7 +48,7 @@ public enum Metric
 	 */
 	public enum Filter
 	{
-		NONE, SKILL, BOSS, CLUE_TIER
+		NONE, SKILL, BOSS, CLUE_TIER, SOURCE
 	}
 
 	private final String label;
@@ -109,7 +112,16 @@ public enum Metric
 			case LEVELS:
 				return d.getLevelsGained();
 			case LOOT:
+				if (filter != null)
+				{
+					LootSource s = d.getLootBySource().get(filter);
+					return s == null ? 0 : s.getValue();
+				}
 				return d.getLootValue();
+			case SUPPLIES:
+				return d.getSuppliesCost();
+			case PROFIT:
+				return d.getLootValue() + d.getSkillingIncome() - d.getSuppliesCost();
 			case KILLS:
 			case KILLS_PER_HOUR:
 				if (filter != null)
@@ -169,6 +181,9 @@ public enum Metric
 				return parts;
 			case CLUE_TIER:
 				d.getClues().forEach((k, v) -> parts.put(k, v.doubleValue()));
+				return parts;
+			case SOURCE:
+				d.getLootBySource().forEach((k, v) -> parts.put(k, (double) v.getValue()));
 				return parts;
 			default:
 				return Collections.emptyMap();

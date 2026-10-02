@@ -1,6 +1,7 @@
 package com.runejourney.report;
 
 import com.runejourney.model.DayRecord;
+import com.runejourney.model.LootSource;
 import com.runejourney.planner.Skills;
 import java.time.LocalDate;
 import java.util.List;
@@ -10,14 +11,15 @@ import java.util.TreeSet;
 import net.runelite.api.Skill;
 
 /**
- * One row per day with every tracked metric, plus per-skill XP and per-boss kills, for spreadsheets.
+ * One row per day with every tracked metric, plus per-skill XP, per-boss kills and loot per source, for spreadsheets.
  */
 public final class CsvExport
 {
 	private static final Metric[] COLUMNS = {
-		Metric.PLAYTIME, Metric.XP, Metric.LEVELS, Metric.INCOME, Metric.LOOT, Metric.SKILLING_INCOME, Metric.KILLS,
-		Metric.CLUES, Metric.CLUE_LOOT, Metric.COLLECTION_LOG, Metric.COMBAT_TASKS, Metric.CA_POINTS, Metric.QUESTS,
-		Metric.PERSONAL_BESTS, Metric.PETS, Metric.SLAYER_TASKS, Metric.DEATHS, Metric.NET_WORTH,
+		Metric.PLAYTIME, Metric.XP, Metric.LEVELS, Metric.INCOME, Metric.LOOT, Metric.SKILLING_INCOME, Metric.SUPPLIES,
+		Metric.PROFIT, Metric.KILLS, Metric.CLUES, Metric.CLUE_LOOT, Metric.COLLECTION_LOG, Metric.COMBAT_TASKS,
+		Metric.CA_POINTS, Metric.QUESTS, Metric.PERSONAL_BESTS, Metric.PETS, Metric.SLAYER_TASKS, Metric.DEATHS,
+		Metric.NET_WORTH,
 	};
 
 	private CsvExport()
@@ -28,10 +30,12 @@ public final class CsvExport
 	{
 		TreeSet<String> bosses = new TreeSet<>();
 		TreeSet<String> skills = new TreeSet<>();
+		TreeSet<String> sources = new TreeSet<>();
 		for (DayRecord d : days)
 		{
 			bosses.addAll(d.getBossKills().keySet());
 			skills.addAll(d.getSkillXp().keySet());
+			sources.addAll(d.getLootBySource().keySet());
 		}
 
 		StringBuilder sb = new StringBuilder();
@@ -50,6 +54,10 @@ public final class CsvExport
 		for (String b : bosses)
 		{
 			sb.append(',').append(quote(b + " kills"));
+		}
+		for (String s : sources)
+		{
+			sb.append(',').append(quote(s + " loot"));
 		}
 		sb.append('\n');
 
@@ -78,6 +86,11 @@ public final class CsvExport
 			for (String b : bosses)
 			{
 				sb.append(',').append(d.getBossKills().getOrDefault(b, 0));
+			}
+			for (String s : sources)
+			{
+				LootSource loot = d.getLootBySource().get(s);
+				sb.append(',').append(loot == null ? 0 : loot.getValue());
 			}
 			sb.append('\n');
 		}

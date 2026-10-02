@@ -58,16 +58,30 @@ public final class Format
 		minutes %= 60;
 		if (hours == 0)
 		{
-			return minutes + "m";
+			return minutes + " min";
 		}
 		return hours + "h " + minutes + "m";
+	}
+
+	/**
+	 * A time as a clock, like the game shows personal bests: "1:12", "12:05" or "1:05:30".
+	 */
+	public static String clock(double minutes)
+	{
+		long seconds = Math.max(1, Math.round(minutes * 60));
+		long h = seconds / 3600;
+		long m = seconds / 60 % 60;
+		long s = seconds % 60;
+		return h > 0
+			? String.format(Locale.ENGLISH, "%d:%02d:%02d", h, m, s)
+			: String.format(Locale.ENGLISH, "%d:%02d", m, s);
 	}
 
 	public static String hours(double hours)
 	{
 		if (hours < 1)
 		{
-			return Math.max(1, Math.round(hours * 60)) + "m";
+			return Math.max(1, Math.round(hours * 60)) + " min";
 		}
 		if (hours < 10)
 		{

@@ -108,9 +108,32 @@ class Views
 			card.add(Ui.link("View screenshot", () -> showScreenshot(name, e.getTitle())));
 		}
 
+		if (e.getNote() != null)
+		{
+			card.add(note(e.getNote()));
+		}
+
+		// Notes can be added wherever an event is shown; removing it is only offered in the Journey
+		String day = date != null ? date : Instant.ofEpochMilli(e.getTime()).atZone(ZoneId.systemDefault()).toLocalDate().toString();
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem editNote = new JMenuItem(e.getNote() == null ? "Add note..." : "Edit note...");
+		editNote.addActionListener(a -> editNote(card, e, day));
+		menu.add(editNote);
+		if (e.getNote() != null)
+		{
+			JMenuItem removeNote = new JMenuItem("Remove note");
+			removeNote.addActionListener(a ->
+			{
+				service.setEventNote(day, e.getTime(), e.getTitle(), null);
+				onChange.run();
+			});
+			menu.add(removeNote);
+		}
+		card.setComponentPopupMenu(menu);
+		inheritPopup(card);
+
 		if (date != null)
 		{
-			JPopupMenu menu = new JPopupMenu();
 			JMenuItem delete = new JMenuItem("Remove from Journey");
 			delete.addActionListener(a ->
 			{
@@ -122,10 +145,69 @@ class Views
 					onChange.run();
 				}
 			});
+			menu.addSeparator();
 			menu.add(delete);
-			card.setComponentPopupMenu(menu);
 		}
 		return card;
+	}
+
+	private static final Color NOTE_COLOR = new Color(0xD7CCC8);
+	private static final int MAX_NOTE_LENGTH = 500;
+
+	/**
+	 * The player's note, keeping their line breaks.
+	 */
+	private static JLabel note(String text)
+	{
+		JLabel l = new JLabel("<html><div style='width:" + Ui.TEXT_WIDTH + "px'>"
+			+ Ui.escape(text).replace("\n", "<br>") + "</div></html>");
+		l.setFont(FontManager.getRunescapeSmallFont());
+		l.setForeground(NOTE_COLOR);
+		l.setBorder(new EmptyBorder(2, 0, 0, 0));
+		return l;
+	}
+
+	private void editNote(JPanel card, JourneyEvent e, String day)
+	{
+		javax.swing.JTextArea area = new javax.swing.JTextArea(e.getNote() == null ? "" : e.getNote(), 5, 28);
+		area.setLineWrap(true);
+		area.setWrapStyleWord(true);
+		JPanel form = new JPanel(new BorderLayout(0, 6));
+		form.add(new JLabel(Ui.wrap("A note for \"" + e.getTitle() + "\"", 260)), BorderLayout.NORTH);
+		form.add(new javax.swing.JScrollPane(area), BorderLayout.CENTER);
+		SwingUtilities.invokeLater(area::requestFocusInWindow);
+
+		int ok = JOptionPane.showConfirmDialog(card, form, e.getNote() == null ? "Add note" : "Edit note",
+			JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+		if (ok != JOptionPane.OK_OPTION)
+		{
+			return;
+		}
+		String text = area.getText();
+		if (text.length() > MAX_NOTE_LENGTH)
+		{
+			text = text.substring(0, MAX_NOTE_LENGTH);
+		}
+		service.setEventNote(day, e.getTime(), e.getTitle(), text);
+		onChange.run();
+	}
+
+	/**
+	 * Right clicks on a card's labels open the card's menu too, not just clicks on its edges.
+	 */
+	private static void inheritPopup(java.awt.Container c)
+	{
+		for (java.awt.Component child : c.getComponents())
+		{
+			if (child instanceof javax.swing.JComponent)
+			{
+				((javax.swing.JComponent) child).setInheritsPopupMenu(true);
+			}
+			if (child instanceof java.awt.Container)
+			{
+				inheritPopup((java.awt.Container) child);
+			}
+		}
 	}
 
 	private void showScreenshot(String name, String title)

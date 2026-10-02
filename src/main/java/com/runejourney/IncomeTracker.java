@@ -2,6 +2,7 @@ package com.runejourney;
 
 import com.runejourney.service.JourneyService;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -21,8 +22,9 @@ import net.runelite.client.game.ItemManager;
 
 /**
  * Works out money made from skilling (thieving, gathering, alching, processing) by watching the
- * inventory. When items change on the same tick as a non-combat XP drop, the net value change is
- * credited to that skill. Must only be used on the client thread.
+ * inventory. Items that change on the same tick as a non-combat XP drop are checked against
+ * {@link SkillingRules}, which decides whether that skill made money and how much. Must only be
+ * used on the client thread.
  */
 @Singleton
 class IncomeTracker
@@ -103,6 +105,14 @@ class IncomeTracker
 		lastInventory = now;
 	}
 
+	/**
+	 * Takes item changes back out of this tick, e.g. food and potions already counted as supplies.
+	 */
+	void discard(Map<Integer, Integer> changes)
+	{
+		changes.forEach((id, change) -> pendingDelta.merge(id, -change, Integer::sum));
+	}
+
 	void onXp(Skill skill, long delta)
 	{
 		if (delta > 0)
@@ -158,33 +168,25 @@ class IncomeTracker
 			return;
 		}
 
-		long gainedValue = 0;
-		long lostValue = 0;
 		long coinsGained = 0;
 		boolean pouchOpened = false;
-		List<JourneyService.LootItem> gained = new ArrayList<>();
+		List<SkillingRules.Change> changes = new ArrayList<>();
+		Map<String, Integer> ids = new HashMap<>();
 		for (Map.Entry<Integer, Integer> e : pendingDelta.entrySet())
 		{
 			int id = e.getKey();
 			int qty = e.getValue();
-			long price = id == ItemID.COINS ? 1 : itemManager.getItemPrice(id);
-			if (qty > 0)
+			String name = itemManager.getItemComposition(id).getName();
+			long price = id == ItemID.COINS ? 1 : id == ItemID.PLATINUM ? 1000 : itemManager.getItemPrice(id);
+			changes.add(new SkillingRules.Change(name, qty, price));
+			ids.put(name, id);
+			if (qty > 0 && id == ItemID.COINS)
 			{
-				gainedValue += price * qty;
-				if (id == ItemID.COINS)
-				{
-					coinsGained += qty;
-				}
-				gained.add(new JourneyService.LootItem(id, itemManager.getItemComposition(id).getName(), qty, price * qty));
+				coinsGained += qty;
 			}
-			else
+			if (qty < 0 && name != null && name.toLowerCase(Locale.ENGLISH).contains("coin pouch"))
 			{
-				lostValue += price * -qty;
-				String name = itemManager.getItemComposition(id).getName();
-				if (name != null && name.toLowerCase(Locale.ENGLISH).contains("coin pouch"))
-				{
-					pouchOpened = true;
-				}
+				pouchOpened = true;
 			}
 		}
 
@@ -193,23 +195,45 @@ class IncomeTracker
 			// Opening coin pouches gives coins without XP; they come from pickpocketing
 			if (pouchOpened && coinsGained > 0)
 			{
-				service.onSkillingIncome(Skill.THIEVING, coinsGained, gained);
+				service.onSkillingIncome(Skill.THIEVING, coinsGained,
+					Collections.singletonList(new JourneyService.LootItem(ItemID.COINS, "Coins", (int) coinsGained, coinsGained)));
 			}
 			return;
 		}
-		for (Skill s : pendingXp.keySet())
+		if (isCombat(pendingXp.keySet()))
 		{
-			if (COMBAT.contains(s))
-			{
-				return;
-			}
+			return;
 		}
 
-		Skill skill = pendingXp.entrySet().stream().max(Map.Entry.comparingByValue()).get().getKey();
-		long net = gainedValue - lostValue;
-		if (net != 0 || !gained.isEmpty())
+		List<Skill> skills = new ArrayList<>(pendingXp.keySet());
+		skills.sort((a, b) -> Long.compare(pendingXp.get(b), pendingXp.get(a)));
+		SkillingRules.Income income = SkillingRules.evaluate(skills, changes);
+		if (income == null)
 		{
-			service.onSkillingIncome(skill, net, gained);
+			return;
 		}
+		List<JourneyService.LootItem> products = new ArrayList<>();
+		for (SkillingRules.Change c : income.getProducts())
+		{
+			products.add(new JourneyService.LootItem(ids.getOrDefault(c.getName(), -1), c.getName(), c.getQuantity(),
+				c.getUnitPrice() * c.getQuantity()));
+		}
+		service.onSkillingIncome(income.getSkill(), income.getValue(), products);
+	}
+
+	/**
+	 * Whether a tick's XP drops mean the player is fighting. Barbarian Fishing gives Strength (and
+	 * Agility) XP with every catch, so Strength alongside Fishing is skilling, not combat.
+	 */
+	static boolean isCombat(Set<Skill> skills)
+	{
+		for (Skill s : skills)
+		{
+			if (COMBAT.contains(s) && !(s == Skill.STRENGTH && skills.contains(Skill.FISHING)))
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 }

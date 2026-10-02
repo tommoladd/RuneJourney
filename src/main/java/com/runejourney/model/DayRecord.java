@@ -44,6 +44,19 @@ public class DayRecord
 	private long offlineXp;
 	private Map<String, Long> offlineSkillXp = new HashMap<>();
 	private Map<String, Long> skillingIncomeBySkill = new HashMap<>();
+	/**
+	 * Loot split by where it came from. Days recorded before this was added have lootValue
+	 * without a breakdown.
+	 */
+	private Map<String, LootSource> lootBySource = new HashMap<>();
+	/**
+	 * GP value of food and potions eaten or drunk.
+	 */
+	private long suppliesCost;
+	/**
+	 * Item name to how much of it was used.
+	 */
+	private Map<String, ItemTotal> suppliesUsed = new HashMap<>();
 	private int combatTasks;
 	private int combatTaskPoints;
 	/**

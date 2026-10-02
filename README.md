@@ -8,9 +8,9 @@ what to do next, and builds adaptive weekly plans towards your goals.
 ## Features
 
 ### Today
-What you've done today (or this week, month, year...): time played, XP, levels, loot and skilling
-income, boss kills, clues, collection log slots, combat tasks, net worth and your play streak.
-Your day carries on across log-outs.
+What you've done today (or this week, month, year...): time played, XP, levels, loot by source,
+skilling income, supplies used and profit, boss kills, clues, collection log slots, combat tasks,
+net worth and your play streak. Your day carries on across log-outs.
 
 ### My Goals
 - Skill levels and XP, total level, base levels, Max Cape
@@ -27,7 +27,9 @@ you like to train each skill and estimates follow that method's XP rates, then y
 ### My Journey
 A timeline of your account: levels, XP milestones, kill count milestones, personal bests, valuable
 drops, clue caskets, collection log slots, pets, quests, diaries, combat tasks, goals and records,
-with optional screenshots. Add your own memories for anything, on any date.
+with optional screenshots. Add your own memories for anything, on any date, and right-click any
+entry to add a note to it. The Screenshots gallery shows every screenshot taken, so you can view,
+save a copy of or delete them.
 
 ### Advisor
 Ideas for the time you have: skills behind your weekly plan, bosses and clues that fit (favouring
@@ -35,11 +37,18 @@ kill count milestones you're close to), and anything you're close to finishing.
 
 ### Reports & charts
 A reports window with charts for any metric over any period, breakdowns by skill, boss or clue tier,
-comparisons with the previous period and personal records. Export a full report as a web page,
+comparisons with the previous period and personal records. A Loot tab ranks your bosses and
+activities by total loot, loot per kill and GP per hour. Export a full report as a web page,
 or your daily data as CSV.
 
 ### RuneJourney Wrapped
 Every Monday, relive last week as an animated, in-game "Wrapped" with its own look each week.
+
+### Encouragement
+A friendly chat message every so much XP in a skill ("That's another 250k Agility XP down. Keep it
+up!"), with plenty of variety. Each skill has its own gap: slower skills like Agility and Runecraft
+cheer you on every 250k XP, faster ones like Crafting and Smithing every 1m. Change or turn them off
+in the plugin settings.
 
 ### Overlay (optional)
 Show a pinned goal, this week's plan, today's stats, your streak or net worth on screen.
@@ -54,5 +63,7 @@ Net worth and screenshots can be turned off in the plugin settings.
 
 ## Notes
 
-- The bank is only visible to plugins while it's open, so banked coins and bank value update when you open it.
+- The bank is only visible to plugins while it's open. RuneJourney remembers what was in it (along with
+  your inventory, equipment, looting bag and seed vault) and re-prices it at current GE prices each
+  time you log in, so open your bank once after installing.
 - The game doesn't share your Combat Achievement points total; enter it once when you create a CA points goal.
