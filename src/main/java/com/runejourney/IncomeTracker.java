@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.Skill;
@@ -23,12 +24,27 @@ import net.runelite.client.game.ItemManager;
 /**
  * Works out money made from skilling (thieving, gathering, alching, processing) by watching the
  * inventory. Items that change on the same tick as a non-combat XP drop are checked against
- * {@link SkillingRules}, which decides whether that skill made money and how much. Must only be
- * used on the client thread.
+ * {@link SkillingRules}, which decides whether that skill made money and how much. Some actions,
+ * like binding soul runes, give the XP and the items a tick apart, so changes that don't add up to
+ * anything get one more tick to meet the rest. Must only be used on the client thread.
  */
+@Slf4j
 @Singleton
 class IncomeTracker
 {
+	private enum Outcome
+	{
+		COUNTED,
+		/**
+		 * XP or items that didn't make money on their own; the rest of the action may follow.
+		 */
+		UNMATCHED,
+		/**
+		 * Nothing happened, or it can't be skilling (fighting, banking, other loot).
+		 */
+		SKIPPED
+	}
+
 	/**
 	 * XP in these skills means the player is fighting; inventory changes then are loot, supplies or
 	 * ammo, which are tracked elsewhere.
@@ -58,6 +74,11 @@ class IncomeTracker
 	private Map<Integer, Integer> lastInventory;
 	private final Map<Integer, Integer> pendingDelta = new HashMap<>();
 	private final Map<Skill, Long> pendingXp = new EnumMap<>(Skill.class);
+	/**
+	 * Last tick's changes that didn't add up to anything, given one more tick to be matched.
+	 */
+	private final Map<Integer, Integer> carriedDelta = new HashMap<>();
+	private final Map<Skill, Long> carriedXp = new EnumMap<>(Skill.class);
 	private final Set<Integer> openBlocking = new HashSet<>();
 	private int blockedUntil;
 	private int suppressedTick = -1;
@@ -74,6 +95,8 @@ class IncomeTracker
 		lastInventory = null;
 		pendingDelta.clear();
 		pendingXp.clear();
+		carriedDelta.clear();
+		carriedXp.clear();
 		openBlocking.clear();
 		blockedUntil = 0;
 		suppressedTick = -1;
@@ -148,9 +171,19 @@ class IncomeTracker
 
 	void onTick(int tick)
 	{
+		boolean carried = !carriedDelta.isEmpty() || !carriedXp.isEmpty();
+		carriedDelta.forEach((id, change) -> pendingDelta.merge(id, change, Integer::sum));
+		carriedXp.forEach((skill, xp) -> pendingXp.merge(skill, xp, Long::sum));
+		carriedDelta.clear();
+		carriedXp.clear();
 		try
 		{
-			process(tick);
+			// Only carried once, so unrelated changes never pile up
+			if (process(tick) == Outcome.UNMATCHED && !carried)
+			{
+				carriedDelta.putAll(pendingDelta);
+				carriedXp.putAll(pendingXp);
+			}
 		}
 		finally
 		{
@@ -159,13 +192,17 @@ class IncomeTracker
 		}
 	}
 
-	private void process(int tick)
+	private Outcome process(int tick)
 	{
 		pendingDelta.values().removeIf(v -> v == 0);
-		if (pendingDelta.isEmpty() || !openBlocking.isEmpty() || tick <= blockedUntil
+		if ((pendingDelta.isEmpty() && pendingXp.isEmpty()) || !openBlocking.isEmpty() || tick <= blockedUntil
 			|| suppressedTick >= tick - 1)
 		{
-			return;
+			return Outcome.SKIPPED;
+		}
+		if (pendingDelta.isEmpty())
+		{
+			return isCombat(pendingXp.keySet()) ? Outcome.SKIPPED : Outcome.UNMATCHED;
 		}
 
 		long coinsGained = 0;
@@ -197,20 +234,22 @@ class IncomeTracker
 			{
 				service.onSkillingIncome(Skill.THIEVING, coinsGained,
 					Collections.singletonList(new JourneyService.LootItem(ItemID.COINS, "Coins", (int) coinsGained, coinsGained)));
+				return Outcome.COUNTED;
 			}
-			return;
+			return Outcome.UNMATCHED;
 		}
 		if (isCombat(pendingXp.keySet()))
 		{
-			return;
+			return Outcome.SKIPPED;
 		}
 
 		List<Skill> skills = new ArrayList<>(pendingXp.keySet());
 		skills.sort((a, b) -> Long.compare(pendingXp.get(b), pendingXp.get(a)));
 		SkillingRules.Income income = SkillingRules.evaluate(skills, changes);
+		log.debug("Tick {}: XP {}, items {} -> {}", tick, pendingXp, changes, income);
 		if (income == null)
 		{
-			return;
+			return Outcome.UNMATCHED;
 		}
 		List<JourneyService.LootItem> products = new ArrayList<>();
 		for (SkillingRules.Change c : income.getProducts())
@@ -219,6 +258,7 @@ class IncomeTracker
 				c.getUnitPrice() * c.getQuantity()));
 		}
 		service.onSkillingIncome(income.getSkill(), income.getValue(), products);
+		return Outcome.COUNTED;
 	}
 
 	/**
