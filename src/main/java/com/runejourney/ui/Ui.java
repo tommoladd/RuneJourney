@@ -259,6 +259,34 @@ final class Ui
 	}
 
 	/**
+	 * A headline number with a caption beneath, for the grid at the top of a page.
+	 */
+	static JPanel tile(String value, String caption, Color valueColor)
+	{
+		JPanel p = new JPanel(new BorderLayout(0, 2))
+		{
+			@Override
+			public Dimension getPreferredSize()
+			{
+				// Two share a row, so never ask for more than half the width
+				Dimension d = super.getPreferredSize();
+				d.width = Math.min(d.width, TEXT_WIDTH / 2);
+				return d;
+			}
+		};
+		p.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		p.setBorder(new EmptyBorder(6, 8, 6, 6));
+		JLabel v = new JLabel(value);
+		v.setFont(FontManager.getRunescapeBoldFont());
+		v.setForeground(valueColor);
+		JLabel c = small(caption, MUTED);
+		p.add(v, BorderLayout.NORTH);
+		p.add(c, BorderLayout.SOUTH);
+		p.setToolTipText(caption + ": " + value);
+		return p;
+	}
+
+	/**
 	 * A section card with a gold heading.
 	 */
 	static JPanel section(String title)

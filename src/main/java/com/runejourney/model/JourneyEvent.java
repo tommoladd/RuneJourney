@@ -34,6 +34,11 @@ public class JourneyEvent
 	 * The player's own note about this moment, added from the Journey.
 	 */
 	private String note;
+	/**
+	 * Happened while RuneJourney wasn't running, some time since the day's
+	 * {@link DayRecord#getAwayFrom()}; it was only noticed when this was recorded.
+	 */
+	private boolean away;
 
 	public JourneyEvent(long time, EventType type, String title, String detail, String skill, String screenshot,
 		boolean highlight, long value)

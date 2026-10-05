@@ -22,6 +22,13 @@ public class RangeSummary
 	private int daysPlayed;
 	private long playMillis;
 	private long xpGained;
+	/**
+	 * XP gained away from RuneJourney that isn't in xpGained, as it may be from before this range:
+	 * it was gained some time between awayFrom and awayTo.
+	 */
+	private long awayXp;
+	private LocalDate awayFrom;
+	private LocalDate awayTo;
 	private int levelsGained;
 	private long lootValue;
 	private int bossKills;

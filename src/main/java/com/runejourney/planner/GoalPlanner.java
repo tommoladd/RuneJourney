@@ -91,6 +91,26 @@ public final class GoalPlanner
 		return targets;
 	}
 
+	/**
+	 * Whether XP in a skill moves a skilling goal forward, given what the skill had before it was
+	 * gained: XP past 99, or in a skill the goal has already finished with, doesn't.
+	 */
+	public static boolean helps(Goal goal, Skill skill, long xpBefore)
+	{
+		switch (goal.getType())
+		{
+			case SKILL:
+				return skill == Skills.parse(goal.getSkill()) && xpBefore < goal.getTargetXp();
+			case BASE_LEVEL:
+			case MAX_CAPE:
+				return xpBefore < Skills.xpForLevel(baseLevel(goal));
+			case TOTAL_LEVEL:
+				return Skills.level(xpBefore) < Experience.MAX_REAL_LEVEL;
+			default:
+				return false;
+		}
+	}
+
 	private static int baseLevel(Goal goal)
 	{
 		return goal.getType() == GoalType.MAX_CAPE ? Experience.MAX_REAL_LEVEL : goal.getTargetLevel();
@@ -562,9 +582,11 @@ public final class GoalPlanner
 			else
 			{
 				Set<String> keys = new LinkedHashSet<>(goal.getWeekTargets().keySet());
-				for (Skill s : resolveTargets(goal, state, rates).keySet())
+				// XP outside the plan still counts when it moved the goal forward
+				for (Skill s : Skills.ALL)
 				{
-					if (Skills.xp(state, s) > goal.getWeekStartXp().getOrDefault(s.name(), Long.MAX_VALUE))
+					long before = goal.getWeekStartXp().getOrDefault(s.name(), Long.MAX_VALUE);
+					if (Skills.xp(state, s) > before && helps(goal, s, before))
 					{
 						keys.add(s.name());
 					}

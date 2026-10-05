@@ -18,10 +18,13 @@ import java.awt.GridLayout;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.LongFunction;
 import javax.inject.Inject;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
@@ -850,34 +853,106 @@ class GoalsTab extends RefreshableTab
 		return String.format(Locale.ENGLISH, "%.1f", Math.floor(exact * 10) / 10);
 	}
 
+	/**
+	 * How last week's plan went: each planned skill's result in words, best first, and a single
+	 * line for anything else trained that still moved the goal forward.
+	 */
 	private JPanel lastWeek(Goal g)
 	{
 		JPanel card = Ui.section("Last week");
+		long[] count = g.getLastWeekResults().get(GoalPlanner.COUNT_KEY);
+		if (count != null)
+		{
+			card.add(weekResult(Ui.small(Counters.label(g.getCounter()), Color.WHITE), count,
+				v -> Counters.format(g.getCounter(), v)));
+		}
+
+		List<Map.Entry<Skill, long[]>> planned = new ArrayList<>();
+		List<String> also = new ArrayList<>();
 		for (Map.Entry<String, long[]> e : g.getLastWeekResults().entrySet())
 		{
-			long[] v = e.getValue();
-			if (GoalPlanner.COUNT_KEY.equals(e.getKey()))
-			{
-				card.add(Ui.row(Ui.small(Counters.label(g.getCounter()), Color.WHITE),
-					Ui.small(v[1] + " / " + v[0], v[1] >= v[0] ? Ui.GOOD : Ui.WARN)));
-				continue;
-			}
 			Skill s = Skills.parse(e.getKey());
+			long[] v = e.getValue();
 			if (s == null)
 			{
 				continue;
 			}
-			JLabel name = Ui.small(s.getName(), Color.WHITE);
-			name.setIcon(views.skillIcon(s));
+			if (v[0] > 0)
+			{
+				planned.add(new AbstractMap.SimpleEntry<>(s, v));
+			}
+			// This week started where last week ended, so taking off last week's XP gives where it began
+			else if (v[1] > 0 && GoalPlanner.helps(g, s, g.getWeekStartXp().getOrDefault(s.name(), Long.MAX_VALUE) - v[1]))
+			{
+				also.add(s.getName() + " +" + Format.compact(v[1]));
+			}
+		}
+		planned.sort(Comparator.comparingDouble((Map.Entry<Skill, long[]> e) -> e.getValue()[1] / (double) e.getValue()[0]).reversed());
+		for (Map.Entry<Skill, long[]> e : planned)
+		{
+			JLabel name = Ui.small(e.getKey().getName(), Color.WHITE);
+			name.setIcon(views.skillIcon(e.getKey()));
 			name.setIconTextGap(5);
-			String result = v[0] == 0 ? "+" + Format.compact(v[1]) + " extra" : Format.compact(v[1]) + " / " + Format.compact(v[0]);
-			card.add(Ui.row(name, Ui.small(result, v[1] >= v[0] ? Ui.GOOD : Ui.WARN)));
+			card.add(weekResult(name, e.getValue(), v -> Format.compact(v) + " XP"));
+		}
+		if (!also.isEmpty())
+		{
+			JLabel extra = Ui.muted("Also towards your goal: " + String.join(", ", also));
+			extra.setBorder(new EmptyBorder(6, 0, 0, 0));
+			card.add(extra);
 		}
 		card.add(spacer());
 		card.add(Ui.muted("Weekly plans met: " + g.getWeeksMet() + " of " + g.getWeeksPlanned()
 			+ (g.getPlanStreak() > 1 ? " · " + g.getPlanStreak() + " in a row" : "")
 			+ (g.getBestPlanStreak() > 1 ? " (best " + g.getBestPlanStreak() + ")" : "")));
 		return card;
+	}
+
+	/**
+	 * One planned target from last week: the verdict beside its name, the numbers beneath.
+	 *
+	 * @param v [target, achieved]
+	 */
+	private static JPanel weekResult(JLabel name, long[] v, LongFunction<String> format)
+	{
+		long target = v[0];
+		long achieved = v[1];
+		String verdict;
+		Color color;
+		if (achieved > target)
+		{
+			verdict = "+" + format.apply(achieved - target) + " over";
+			color = Ui.GOOD;
+		}
+		else if (achieved == target)
+		{
+			verdict = "Done";
+			color = Ui.GOOD;
+		}
+		else if (achieved == 0)
+		{
+			verdict = "Not done";
+			color = Ui.WARN;
+		}
+		else
+		{
+			verdict = format.apply(target - achieved) + " short";
+			color = Ui.WARN;
+		}
+		String numbers = format.apply(achieved) + " of " + format.apply(target);
+		if (target > 0 && achieved >= target * 2)
+		{
+			numbers += ", " + (achieved / target) + "x the plan";
+		}
+
+		JPanel block = Ui.stack(1);
+		block.setBorder(new EmptyBorder(4, 0, 0, 0));
+		block.add(Ui.row(name, Ui.small(verdict, color)));
+		JLabel detail = Ui.small(numbers, Ui.MUTED);
+		// Line up with the name rather than the icon
+		detail.setBorder(new EmptyBorder(0, name.getIcon() == null ? 0 : name.getIcon().getIconWidth() + name.getIconTextGap(), 0, 0));
+		block.add(detail);
+		return block;
 	}
 
 	private JPanel trainingPlan(GoalProgress p)

@@ -3,6 +3,7 @@ package com.runejourney.ui;
 import com.runejourney.model.ItemTotal;
 import com.runejourney.model.JourneyEvent;
 import com.runejourney.model.LootSource;
+import com.runejourney.planner.Counters;
 import com.runejourney.planner.GoalPlanner;
 import com.runejourney.planner.Skills;
 import com.runejourney.service.JourneyService;
@@ -15,9 +16,12 @@ import java.awt.BorderLayout;
 import java.awt.GridLayout;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.swing.JButton;
@@ -28,9 +32,13 @@ import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JTextField;
+import javax.swing.SwingConstants;
+import javax.swing.border.EmptyBorder;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import net.runelite.api.Skill;
+import net.runelite.client.ui.ColorScheme;
+import net.runelite.client.ui.FontManager;
 
 /**
  * "What have I actually accomplished today?" Also doubles as the weekly/monthly recap and
@@ -69,13 +77,28 @@ class TodayTab extends RefreshableTab
 	private final Color buttonBackground = wrappedButton.getBackground();
 	private final Color buttonForeground = wrappedButton.getForeground();
 	private final JComboBox<Range> rangeBox = new JComboBox<>(Range.values());
-	private final JPanel body = Ui.stack(4);
+	private final JPanel body = Ui.stack(6);
 	private static final java.time.format.DateTimeFormatter MENU_DATE =
 		java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH);
 	/**
-	 * Rows shown in the loot and supplies cards before the rest are summed as "Other".
+	 * Rows shown in the loot and supplies breakdowns before the rest are summed as "Other".
 	 */
 	private static final int BREAKDOWN_ROWS = 8;
+	/**
+	 * Rows shown before "Show more"; the rest are a click away so the page stays short.
+	 */
+	private static final int HIGHLIGHT_ROWS = 3;
+	private static final int SKILL_ROWS = 5;
+	private static final int BOSS_ROWS = 3;
+	private static final String HIGHLIGHTS = "highlights";
+	private static final String SKILLS = "skills";
+	private static final String MONEY = "money";
+	private static final String ACTIVITY = "activity";
+	private static final String GOLD_HEX = String.format("#%06X", Ui.GOLD.getRGB() & 0xFFFFFF);
+	/**
+	 * Sections whose "Show more" is open, kept across refreshes.
+	 */
+	private final Set<String> expanded = new HashSet<>();
 	private LocalDate customFrom = LocalDate.now().minusDays(6);
 	private LocalDate customTo = LocalDate.now();
 	private Range lastRange = Range.TODAY;
@@ -256,57 +279,19 @@ class TodayTab extends RefreshableTab
 		{
 			body.add(Ui.muted(Format.date(from) + " - " + Format.date(to)));
 		}
-
-		JPanel stats = Ui.card();
-		stats.add(Ui.stat("Played", Format.duration(r.getPlayMillis())));
-		stats.add(Ui.stat("XP gained", Format.number(r.getXpGained())));
-		stats.add(Ui.stat("Levels gained", Format.number(r.getLevelsGained())));
-		stats.add(Ui.stat("Loot", Format.compact(r.getLootValue()) + " gp"));
-		long income = r.getLootValue() + r.getSkillingIncome();
-		if (r.getSkillingIncome() != 0)
-		{
-			stats.add(Ui.stat("Skilling income", Format.compact(r.getSkillingIncome()) + " gp"));
-			stats.add(Ui.stat("Total income", Format.compact(income) + " gp", Ui.GOOD));
-		}
-		if (r.getSuppliesCost() > 0)
-		{
-			long profit = income - r.getSuppliesCost();
-			stats.add(Ui.stat("Supplies used", "-" + Format.compact(r.getSuppliesCost()) + " gp", Ui.BAD));
-			stats.add(Ui.stat("Profit", (profit > 0 ? "+" : "") + Format.compact(profit) + " gp", profit >= 0 ? Ui.GOOD : Ui.BAD));
-		}
-		stats.add(Ui.stat("Boss kills", Format.number(r.getBossKills())));
-		optional(stats, "Slayer tasks", r.getSlayerTasks());
-		optional(stats, "Clues completed", r.getCluesCompleted());
-		if (r.getClueLootValue() > 0)
-		{
-			stats.add(Ui.stat("Clue loot", Format.compact(r.getClueLootValue()) + " gp"));
-		}
-		optional(stats, "Combat tasks", r.getCombatTasks());
-		optional(stats, "CA points earned", r.getCombatTaskPoints());
-		optional(stats, "Collection log", r.getCollectionLogSlots());
-		optional(stats, "Quests", r.getQuestsCompleted());
-		optional(stats, "Personal bests", r.getPersonalBests());
-		optional(stats, "Pets", r.getPets());
-		stats.add(Ui.stat("Deaths", Format.number(r.getDeaths()), r.getDeaths() > 0 ? Ui.BAD : java.awt.Color.WHITE));
-		long[] worth = service.netWorthToday();
-		if (worth != null)
-		{
-			String change = worth[1] == Long.MIN_VALUE ? "" : " (" + (worth[1] >= 0 ? "+" : "") + Format.compact(worth[1]) + ")";
-			stats.add(Ui.stat("Net worth", Format.compact(worth[0]) + " gp" + change,
-				worth[1] == Long.MIN_VALUE || worth[1] >= 0 ? java.awt.Color.WHITE : Ui.BAD));
-		}
+		body.add(tiles(r, multiDay));
 		int[] streak = service.playStreaks();
 		if (streak[0] > 1)
 		{
-			stats.add(Ui.stat("Play streak", streak[0] + " days" + (streak[1] > streak[0] ? " (best " + streak[1] + ")" : " (best!)"), Ui.GOLD));
+			body.add(Ui.small(streak[0] + "-day play streak" + (streak[1] > streak[0] ? " (best " + streak[1] + ")" : ", your best!"), Ui.GOLD));
 		}
-		if (multiDay)
+		if (r.getAwayXp() > 0)
 		{
-			stats.add(Ui.stat("Days played", Format.number(r.getDaysPlayed())));
+			body.add(Ui.muted("Not counted: +" + Format.compact(r.getAwayXp()) + " XP gained while away, some time between "
+				+ r.getAwayFrom().format(MENU_DATE) + " and " + r.getAwayTo().format(MENU_DATE) + "."));
 		}
-		body.add(stats);
 
-		if (r.getPlayMillis() == 0 && r.getHighlights().isEmpty())
+		if (r.getPlayMillis() == 0 && r.getHighlights().isEmpty() && r.getXpGained() == 0)
 		{
 			body.add(Ui.empty(range == Range.TODAY
 				? "Nothing recorded yet today. Go make some memories!"
@@ -315,169 +300,296 @@ class TodayTab extends RefreshableTab
 			return;
 		}
 
-		if (multiDay && r.getBestMoment() != null)
-		{
-			body.add(Ui.header("Best moment"));
-			body.add(views.event(r.getBestMoment(), null));
-		}
-
-		if (!r.getHighlights().isEmpty())
-		{
-			body.add(Ui.header("Highlights"));
-			for (JourneyEvent e : r.getHighlights())
-			{
-				if (multiDay && e.equals(r.getBestMoment()))
-				{
-					continue;
-				}
-				body.add(views.event(e, null));
-			}
-		}
-
-		if (!r.getLevelRanges().isEmpty())
-		{
-			body.add(Ui.header("Levels"));
-			JPanel card = Ui.card();
-			r.getLevelRanges().entrySet().stream()
-				.sorted(Comparator.comparing(e -> -e.getValue()[1]))
-				.forEach(e ->
-				{
-					Skill s = Skills.parse(e.getKey());
-					if (s != null)
-					{
-						JLabel l = Ui.text(e.getValue()[0] + " -> " + e.getValue()[1] + " " + s.getName());
-						l.setIcon(views.skillIcon(s));
-						card.add(l);
-					}
-				});
-			body.add(card);
-		}
-
-		if (!r.getBossKillsByName().isEmpty() || r.getSlayerTasks() > 0 || r.getCluesCompleted() > 0)
-		{
-			body.add(Ui.header("Activity"));
-			JPanel card = Ui.card();
-			List<Map.Entry<String, Integer>> bosses = r.getBossKillsByName().entrySet().stream()
-				.sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-				.limit(8)
-				.collect(Collectors.toList());
-			for (Map.Entry<String, Integer> e : bosses)
-			{
-				card.add(Ui.stat(e.getKey(), e.getValue() + " KC"));
-			}
-			if (r.getSlayerTasks() > 0)
-			{
-				card.add(Ui.stat("Slayer", r.getSlayerTasks() + (r.getSlayerTasks() == 1 ? " task" : " tasks")));
-			}
-			if (r.getCluesCompleted() > 0)
-			{
-				card.add(Ui.stat("Clue scrolls", String.valueOf(r.getCluesCompleted())));
-			}
-			body.add(card);
-		}
-
-		if (!r.getSkillXp().isEmpty())
-		{
-			body.add(Ui.header("XP by skill"));
-			JPanel card = Ui.card();
-			r.getSkillXp().entrySet().stream()
-				.sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-				.limit(10)
-				.forEach(e ->
-				{
-					Skill s = Skills.parse(e.getKey());
-					if (s != null)
-					{
-						JPanel row = Ui.stat(s.getName(), "+" + Format.compact(e.getValue()));
-						((JLabel) row.getComponent(0)).setIcon(views.skillIcon(s));
-						card.add(row);
-					}
-				});
-			body.add(card);
-		}
-
-		if (!r.getSkillingIncomeBySkill().isEmpty())
-		{
-			body.add(Ui.header("Skilling income"));
-			JPanel card = Ui.card();
-			r.getSkillingIncomeBySkill().entrySet().stream()
-				.filter(e -> e.getValue() != 0)
-				.sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-				.forEach(e ->
-				{
-					Skill s = Skills.parse(e.getKey());
-					if (s != null)
-					{
-						JPanel row = Ui.stat(s.getName(), (e.getValue() > 0 ? "+" : "") + Format.compact(e.getValue()) + " gp",
-							e.getValue() >= 0 ? java.awt.Color.WHITE : Ui.BAD);
-						((JLabel) row.getComponent(0)).setIcon(views.skillIcon(s));
-						card.add(row);
-					}
-				});
-			body.add(card);
-		}
-
-		if (!r.getLootBySource().isEmpty())
-		{
-			body.add(Ui.header("Loot by source"));
-			JPanel card = Ui.card();
-			List<Map.Entry<String, LootSource>> sources = r.getLootBySource().entrySet().stream()
-				.filter(e -> e.getValue().getValue() > 0)
-				.sorted(Comparator.comparingLong((Map.Entry<String, LootSource> e) -> e.getValue().getValue()).reversed())
-				.collect(Collectors.toList());
-			sources.stream().limit(BREAKDOWN_ROWS).forEach(e ->
-				withTooltip(card, Ui.stat(e.getKey(), Format.compact(e.getValue().getValue()) + " gp"), sourceTooltip(e.getValue())));
-			otherRow(card, sources.stream().skip(BREAKDOWN_ROWS).mapToLong(e -> e.getValue().getValue()).sum(),
-				sources.size() - BREAKDOWN_ROWS, " gp");
-			body.add(card);
-		}
-
-		if (!r.getSuppliesUsed().isEmpty())
-		{
-			body.add(Ui.header("Supplies used"));
-			JPanel card = Ui.card();
-			List<Map.Entry<String, ItemTotal>> supplies = r.getSuppliesUsed().entrySet().stream()
-				.sorted(Comparator.comparingLong((Map.Entry<String, ItemTotal> e) -> e.getValue().getValue()).reversed())
-				.collect(Collectors.toList());
-			supplies.stream().limit(BREAKDOWN_ROWS).forEach(e -> card.add(Ui.stat(
-				e.getKey() + " x" + Format.number(e.getValue().getQuantity()),
-				"-" + Format.compact(e.getValue().getValue()) + " gp", Ui.BAD)));
-			otherRow(card, -supplies.stream().skip(BREAKDOWN_ROWS).mapToLong(e -> e.getValue().getValue()).sum(),
-				supplies.size() - BREAKDOWN_ROWS, " gp");
-			body.add(card);
-		}
-
-		if (multiDay && r.getBiggestDay() != null && r.getBiggestDayXp() > 0)
-		{
-			body.add(Ui.header("Biggest day"));
-			JPanel card = Ui.card();
-			card.add(Ui.stat(Format.date(LocalDate.parse(r.getBiggestDay())), Format.compact(r.getBiggestDayXp()) + " XP"));
-			body.add(card);
-		}
-
+		highlights(r, multiDay);
+		skills(r, multiDay);
+		money(r);
+		activity(r);
 		rebuild();
 	}
 
 	/**
-	 * Sums up whatever didn't fit in a breakdown card.
+	 * The headline numbers: time played, XP, profit and net worth.
 	 */
-	private static void otherRow(JPanel card, long value, int count, String suffix)
+	private JPanel tiles(RangeSummary r, boolean multiDay)
+	{
+		JPanel grid = new JPanel(new GridLayout(0, 2, 4, 4));
+		grid.setOpaque(false);
+		grid.add(Ui.tile(Format.duration(r.getPlayMillis()),
+			multiDay ? "Played, " + r.getDaysPlayed() + (r.getDaysPlayed() == 1 ? " day" : " days") : "Played", Color.WHITE));
+		JPanel xp = Ui.tile(Format.compact(r.getXpGained()), "XP gained", Color.WHITE);
+		xp.setToolTipText(Format.number(r.getXpGained()) + " XP");
+		grid.add(xp);
+		long profit = r.getLootValue() + r.getSkillingIncome() - r.getSuppliesCost();
+		grid.add(Ui.tile(gp(profit), "Profit", profit > 0 ? Ui.GOOD : profit < 0 ? Ui.BAD : Color.WHITE));
+		Long worth = r.getEndSnapshot().get(Counters.WEALTH);
+		Long worthBefore = r.getStartSnapshot().get(Counters.WEALTH);
+		if (worth != null)
+		{
+			long change = worthBefore == null ? 0 : worth - worthBefore;
+			grid.add(Ui.tile(Format.compact(worth) + " gp",
+				worthBefore == null ? "Net worth" : "Net worth " + (change >= 0 ? "+" : "") + Format.compact(change), Color.WHITE));
+		}
+		else
+		{
+			grid.add(Ui.tile(Format.number(r.getLevelsGained()), "Levels gained", Color.WHITE));
+		}
+		return grid;
+	}
+
+	private void highlights(RangeSummary r, boolean multiDay)
+	{
+		List<JourneyEvent> events = new ArrayList<>();
+		if (multiDay && r.getBestMoment() != null)
+		{
+			events.add(r.getBestMoment());
+		}
+		for (JourneyEvent e : r.getHighlights())
+		{
+			if (!(multiDay && e.equals(r.getBestMoment())))
+			{
+				events.add(e);
+			}
+		}
+		if (events.isEmpty())
+		{
+			return;
+		}
+		int hidden = events.size() - HIGHLIGHT_ROWS;
+		JLabel more = hidden > 0 ? toggle(HIGHLIGHTS, "Show " + hidden + " more") : null;
+		if (more != null)
+		{
+			more.setVerticalAlignment(SwingConstants.BOTTOM);
+		}
+		body.add(Ui.row(Ui.header("Highlights"), more));
+		events.stream()
+			.limit(expanded.contains(HIGHLIGHTS) ? events.size() : HIGHLIGHT_ROWS)
+			.forEach(e -> body.add(views.event(e, null)));
+	}
+
+	/**
+	 * XP by skill, with any level reached alongside. Skills that levelled always show.
+	 */
+	private void skills(RangeSummary r, boolean multiDay)
+	{
+		List<Map.Entry<String, Long>> rows = r.getSkillXp().entrySet().stream()
+			.filter(e -> e.getValue() > 0 && Skills.parse(e.getKey()) != null)
+			.sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+			.collect(Collectors.toList());
+		if (rows.isEmpty())
+		{
+			return;
+		}
+		List<Map.Entry<String, Long>> top = new ArrayList<>();
+		for (int i = 0; i < rows.size(); i++)
+		{
+			if (i < SKILL_ROWS || r.getLevelRanges().containsKey(rows.get(i).getKey()))
+			{
+				top.add(rows.get(i));
+			}
+		}
+		int hidden = rows.size() - top.size();
+		JPanel card = section("Skills", SKILLS, hidden > 0 ? "Show " + hidden + " more" : null);
+		for (Map.Entry<String, Long> e : expanded.contains(SKILLS) ? rows : top)
+		{
+			Skill s = Skills.parse(e.getKey());
+			JPanel row = Ui.stat(s.getName(), "+" + Format.compact(e.getValue()));
+			JLabel name = (JLabel) row.getComponent(0);
+			name.setIcon(views.skillIcon(s));
+			int[] levels = r.getLevelRanges().get(e.getKey());
+			if (levels != null)
+			{
+				name.setText("<html>" + s.getName() + " <font color='" + GOLD_HEX + "'>lvl " + levels[1] + "</font></html>");
+				withTooltip(row, "Level " + levels[0] + " to " + levels[1] + ", " + Format.number(e.getValue()) + " XP");
+			}
+			else
+			{
+				withTooltip(row, Format.number(e.getValue()) + " XP");
+			}
+			card.add(row);
+		}
+		if (multiDay && r.getBiggestDay() != null && r.getBiggestDayXp() > 0)
+		{
+			JLabel best = Ui.muted("Biggest day: " + Format.compact(r.getBiggestDayXp()) + " XP on "
+				+ Format.date(LocalDate.parse(r.getBiggestDay())));
+			best.setBorder(new EmptyBorder(4, 0, 0, 0));
+			card.add(best);
+		}
+		body.add(card);
+	}
+
+	/**
+	 * Where the profit came from: totals first, the breakdown on request.
+	 */
+	private void money(RangeSummary r)
+	{
+		if (r.getLootValue() == 0 && r.getSkillingIncome() == 0 && r.getSuppliesCost() == 0)
+		{
+			return;
+		}
+		JPanel card = section("Money", MONEY, "Show details");
+		if (r.getLootValue() != 0)
+		{
+			card.add(Ui.stat("Loot", Format.compact(r.getLootValue()) + " gp"));
+		}
+		if (r.getSkillingIncome() != 0)
+		{
+			card.add(Ui.stat("Skilling", gp(r.getSkillingIncome()), r.getSkillingIncome() < 0 ? Ui.BAD : Color.WHITE));
+		}
+		if (r.getSuppliesCost() > 0)
+		{
+			card.add(Ui.stat("Supplies used", gp(-r.getSuppliesCost()), Ui.BAD));
+		}
+		if (!expanded.contains(MONEY))
+		{
+			body.add(card);
+			return;
+		}
+
+		List<Map.Entry<String, LootSource>> sources = r.getLootBySource().entrySet().stream()
+			.filter(e -> e.getValue().getValue() > 0)
+			.sorted(Comparator.comparingLong((Map.Entry<String, LootSource> e) -> e.getValue().getValue()).reversed())
+			.collect(Collectors.toList());
+		if (!sources.isEmpty())
+		{
+			card.add(subheading("Loot by source"));
+			sources.stream().limit(BREAKDOWN_ROWS).forEach(e -> card.add(withTooltip(
+				Ui.stat(e.getKey(), Format.compact(e.getValue().getValue()) + " gp", ColorScheme.LIGHT_GRAY_COLOR),
+				sourceTooltip(e.getValue()))));
+			otherRow(card, sources.stream().skip(BREAKDOWN_ROWS).mapToLong(e -> e.getValue().getValue()).sum(),
+				sources.size() - BREAKDOWN_ROWS);
+		}
+
+		List<Map.Entry<String, Long>> skilling = r.getSkillingIncomeBySkill().entrySet().stream()
+			.filter(e -> e.getValue() != 0 && Skills.parse(e.getKey()) != null)
+			.sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+			.collect(Collectors.toList());
+		if (!skilling.isEmpty())
+		{
+			card.add(subheading("Skilling by skill"));
+			for (Map.Entry<String, Long> e : skilling)
+			{
+				Skill s = Skills.parse(e.getKey());
+				JPanel row = Ui.stat(s.getName(), gp(e.getValue()), e.getValue() < 0 ? Ui.BAD : ColorScheme.LIGHT_GRAY_COLOR);
+				((JLabel) row.getComponent(0)).setIcon(views.skillIcon(s));
+				card.add(row);
+			}
+		}
+
+		List<Map.Entry<String, ItemTotal>> supplies = r.getSuppliesUsed().entrySet().stream()
+			.sorted(Comparator.comparingLong((Map.Entry<String, ItemTotal> e) -> e.getValue().getValue()).reversed())
+			.collect(Collectors.toList());
+		if (!supplies.isEmpty())
+		{
+			card.add(subheading("Supplies used"));
+			supplies.stream().limit(BREAKDOWN_ROWS).forEach(e -> card.add(Ui.stat(
+				e.getKey() + " x" + Format.number(e.getValue().getQuantity()),
+				gp(-e.getValue().getValue()), ColorScheme.LIGHT_GRAY_COLOR)));
+			otherRow(card, -supplies.stream().skip(BREAKDOWN_ROWS).mapToLong(e -> e.getValue().getValue()).sum(),
+				supplies.size() - BREAKDOWN_ROWS);
+		}
+		body.add(card);
+	}
+
+	/**
+	 * Kill counts by boss, then counts of everything else done.
+	 */
+	private void activity(RangeSummary r)
+	{
+		List<JPanel> rows = new ArrayList<>();
+		if (r.getCluesCompleted() > 0)
+		{
+			rows.add(Ui.stat("Clue scrolls", Format.number(r.getCluesCompleted())
+				+ (r.getClueLootValue() > 0 ? ", " + Format.compact(r.getClueLootValue()) + " gp" : "")));
+		}
+		count(rows, "Slayer tasks", r.getSlayerTasks());
+		count(rows, "Collection log", r.getCollectionLogSlots());
+		count(rows, "Quests", r.getQuestsCompleted());
+		count(rows, "Personal bests", r.getPersonalBests());
+		count(rows, "Pets", r.getPets());
+		if (r.getCombatTasks() > 0)
+		{
+			rows.add(Ui.stat("Combat tasks", Format.number(r.getCombatTasks())
+				+ (r.getCombatTaskPoints() > 0 ? ", " + Format.number(r.getCombatTaskPoints()) + " pts" : "")));
+		}
+		if (r.getDeaths() > 0)
+		{
+			rows.add(Ui.stat("Deaths", Format.number(r.getDeaths()), Ui.BAD));
+		}
+
+		List<Map.Entry<String, Integer>> bosses = r.getBossKillsByName().entrySet().stream()
+			.sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+			.collect(Collectors.toList());
+		if (rows.isEmpty() && bosses.isEmpty())
+		{
+			return;
+		}
+		int hidden = Math.max(0, bosses.size() - BOSS_ROWS);
+		JPanel card = section("Activity", ACTIVITY, hidden > 0 ? "Show " + hidden + " more" : null);
+		bosses.stream()
+			.limit(expanded.contains(ACTIVITY) ? bosses.size() : BOSS_ROWS)
+			.forEach(e -> card.add(Ui.stat(e.getKey(), Format.number(e.getValue()) + " KC")));
+		rows.forEach(card::add);
+		body.add(card);
+	}
+
+	/**
+	 * A card headed by its title, with an optional link to show more that stays open across
+	 * refreshes.
+	 */
+	private JPanel section(String title, String key, String moreText)
+	{
+		JPanel card = Ui.card();
+		JLabel heading = Ui.small(title, Ui.GOLD);
+		heading.setFont(FontManager.getRunescapeBoldFont());
+		JPanel head = Ui.row(heading, moreText == null && !expanded.contains(key) ? null : toggle(key, moreText));
+		head.setBorder(new EmptyBorder(0, 0, 3, 0));
+		card.add(head);
+		return card;
+	}
+
+	private JLabel toggle(String key, String moreText)
+	{
+		return Ui.link(expanded.contains(key) ? "Show less" : moreText, () ->
+		{
+			if (!expanded.remove(key))
+			{
+				expanded.add(key);
+			}
+			refresh(true);
+		});
+	}
+
+	private static JLabel subheading(String text)
+	{
+		JLabel l = Ui.small(text, Ui.MUTED);
+		l.setBorder(new EmptyBorder(6, 0, 1, 0));
+		return l;
+	}
+
+	private static String gp(long value)
+	{
+		return (value > 0 ? "+" : "") + Format.compact(value) + " gp";
+	}
+
+	/**
+	 * Sums up whatever didn't fit in a breakdown.
+	 */
+	private static void otherRow(JPanel card, long value, int count)
 	{
 		if (count > 0)
 		{
-			card.add(Ui.stat("Other (" + count + ")", (value < 0 ? "-" : "") + Format.compact(Math.abs(value)) + suffix,
-				value < 0 ? Ui.BAD : java.awt.Color.WHITE));
+			card.add(Ui.stat("Other (" + count + ")", gp(value), ColorScheme.LIGHT_GRAY_COLOR));
 		}
 	}
 
-	private static void withTooltip(JPanel card, JPanel row, String tooltip)
+	private static JPanel withTooltip(JPanel row, String tooltip)
 	{
 		row.setToolTipText(tooltip);
 		for (java.awt.Component c : row.getComponents())
 		{
 			((javax.swing.JComponent) c).setToolTipText(tooltip);
 		}
-		card.add(row);
+		return row;
 	}
 
 	/**
@@ -496,11 +608,11 @@ class TodayTab extends RefreshableTab
 		return sb.append("</html>").toString();
 	}
 
-	private static void optional(JPanel card, String name, int value)
+	private static void count(List<JPanel> rows, String name, int value)
 	{
 		if (value > 0)
 		{
-			card.add(Ui.stat(name, Format.number(value)));
+			rows.add(Ui.stat(name, Format.number(value)));
 		}
 	}
 }

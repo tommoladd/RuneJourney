@@ -195,6 +195,13 @@ public class JourneyService implements RateSource
 		dirtyDays.clear();
 		cleanEventText();
 		migrateWealth();
+		for (DayRecord d : days.values())
+		{
+			if (AwayXp.migrate(d, days))
+			{
+				dirtyDays.add(d.getDate());
+			}
+		}
 		resetSessionState();
 		changed(true);
 	}
@@ -295,6 +302,7 @@ public class JourneyService implements RateSource
 			return;
 		}
 		boolean knownBefore = profile.isBankValueKnown();
+		boolean newPart = !profile.getWealthParts().keySet().containsAll(parts.keySet());
 		long before = netWorth();
 		profile.getWealthParts().putAll(parts);
 		if (parts.containsKey(BANK))
@@ -311,9 +319,10 @@ public class JourneyService implements RateSource
 		{
 			return;
 		}
-		if (!knownBefore)
+		if (!knownBefore || newPart)
 		{
-			// First look at the bank: set the baseline quietly rather than celebrating every milestone
+			// First look at the bank, or a container counted for the first time (e.g. the potion store
+			// after updating): set the baseline quietly rather than celebrating every milestone
 			profile.setBestWealth(Math.max(profile.getBestWealth(), now));
 		}
 		else if (now > profile.getBestWealth())
@@ -1079,8 +1088,9 @@ public class JourneyService implements RateSource
 	// ------------------------------------------------------------------
 
 	/**
-	 * Takes the XP baseline after login. Levels gained while RuneJourney wasn't running
-	 * (e.g. on mobile) are recorded, but their XP isn't credited to today.
+	 * Takes the XP baseline after login. XP gained while RuneJourney wasn't running (e.g. on
+	 * mobile) is today's if the gap was all today; otherwise which day it was gained isn't known,
+	 * so it's kept aside rather than credited to today.
 	 */
 	public synchronized void setBaseline(Map<String, Long> current, int tick)
 	{
@@ -1099,6 +1109,9 @@ public class JourneyService implements RateSource
 			rollWeeksIfNeeded();
 
 			DayRecord d = today();
+			LocalDate day = LocalDate.parse(d.getDate());
+			LocalDate since = AwayXp.windowStart(profile.getLastXpAt(), days, day);
+			boolean sameDay = !since.isBefore(day);
 			long awayTotal = 0;
 			Map<String, Long> awayBySkill = new LinkedHashMap<>();
 			for (Skill s : Skills.ALL)
@@ -1112,32 +1125,50 @@ public class JourneyService implements RateSource
 				long gained = now - before;
 				awayTotal += gained;
 				awayBySkill.put(s.getName(), gained);
-				d.setXpGained(d.getXpGained() + gained);
-				d.getSkillXp().merge(s.name(), gained, Long::sum);
-				d.setOfflineXp(d.getOfflineXp() + gained);
-				d.getOfflineSkillXp().merge(s.name(), gained, Long::sum);
-
 				int oldLevel = Skills.level(before);
 				int newLevel = Skills.level(now);
+				if (sameDay)
+				{
+					d.setXpGained(d.getXpGained() + gained);
+					d.getSkillXp().merge(s.name(), gained, Long::sum);
+					d.setOfflineXp(d.getOfflineXp() + gained);
+					d.getOfflineSkillXp().merge(s.name(), gained, Long::sum);
+					d.setLevelsGained(d.getLevelsGained() + newLevel - oldLevel);
+				}
+				else
+				{
+					d.setAwayXp(d.getAwayXp() + gained);
+					d.getAwaySkillXp().merge(s.name(), gained, Long::sum);
+					d.setAwayLevels(d.getAwayLevels() + newLevel - oldLevel);
+				}
+
 				if (newLevel > oldLevel)
 				{
-					d.setLevelsGained(d.getLevelsGained() + newLevel - oldLevel);
 					JourneyEvent e = event(EventType.LEVEL, "Level " + newLevel + " " + s.getName(),
-						Format.number(now) + " XP (gained while away)");
+						Format.number(now) + " XP " + AwayXp.LEVEL_SUFFIX);
 					e.setSkill(s.name());
 					e.setValue(newLevel);
 					e.setHighlight(isMilestoneLevel(newLevel));
+					e.setAway(!sameDay);
 					addEvent(e, false);
 				}
 			}
 			if (awayTotal > 0)
 			{
+				if (!sameDay && (d.getAwayFrom() == null || since.toString().compareTo(d.getAwayFrom()) < 0))
+				{
+					d.setAwayFrom(since.toString());
+				}
 				String detail = awayBySkill.entrySet().stream()
 					.sorted(Map.Entry.<String, Long>comparingByValue().reversed())
 					.limit(5)
 					.map(e -> e.getKey() + " +" + Format.compact(e.getValue()))
 					.collect(java.util.stream.Collectors.joining(", "));
-				JourneyEvent e = event(EventType.NOTE, "While you were away: +" + Format.compact(awayTotal) + " XP", detail);
+				if (!sameDay)
+				{
+					detail = "Some time since " + Format.date(since) + ": " + detail;
+				}
+				JourneyEvent e = event(EventType.NOTE, AwayXp.NOTE_PREFIX + ": +" + Format.compact(awayTotal) + " XP", detail);
 				addEvent(e, false);
 			}
 		}
@@ -1145,6 +1176,7 @@ public class JourneyService implements RateSource
 		xp.clear();
 		xp.putAll(current);
 		profile.setLastXp(new HashMap<>(current));
+		profile.setLastXpAt(System.currentTimeMillis());
 		profileDirty = true;
 		baselineSet = true;
 
@@ -1206,6 +1238,7 @@ public class JourneyService implements RateSource
 		int oldTotal = Skills.totalLevel(xp);
 		xp.put(key, newXp);
 		profile.getLastXp().put(key, newXp);
+		profile.setLastXpAt(System.currentTimeMillis());
 		profileDirty = true;
 
 		DayRecord d = today();
@@ -2833,6 +2866,10 @@ public class JourneyService implements RateSource
 		c.setSuppliesUsed(supplies);
 		c.setOfflineXp(d.getOfflineXp());
 		c.setOfflineSkillXp(new HashMap<>(d.getOfflineSkillXp()));
+		c.setAwayXp(d.getAwayXp());
+		c.setAwaySkillXp(new HashMap<>(d.getAwaySkillXp()));
+		c.setAwayLevels(d.getAwayLevels());
+		c.setAwayFrom(d.getAwayFrom());
 		c.setCombatTasks(d.getCombatTasks());
 		c.setCombatTaskPoints(d.getCombatTaskPoints());
 		c.setSnapshot(new HashMap<>(d.getSnapshot()));
@@ -2892,6 +2929,20 @@ public class JourneyService implements RateSource
 				r.getEndSnapshot().putAll(d.getSnapshot());
 			}
 			d.getSkillXp().forEach((k, v) -> r.getSkillXp().merge(k, v, Long::sum));
+			boolean awayCounted = AwayXp.counted(d, from);
+			if (awayCounted)
+			{
+				r.setXpGained(r.getXpGained() + d.getAwayXp());
+				r.setLevelsGained(r.getLevelsGained() + d.getAwayLevels());
+				d.getAwaySkillXp().forEach((k, v) -> r.getSkillXp().merge(k, v, Long::sum));
+			}
+			else if (d.getAwayXp() > 0 && d.getAwayFrom() != null)
+			{
+				r.setAwayXp(r.getAwayXp() + d.getAwayXp());
+				LocalDate since = LocalDate.parse(d.getAwayFrom());
+				r.setAwayFrom(r.getAwayFrom() == null || since.isBefore(r.getAwayFrom()) ? since : r.getAwayFrom());
+				r.setAwayTo(LocalDate.parse(d.getDate()));
+			}
 			d.getBossKills().forEach((k, v) ->
 			{
 				r.getBossKillsByName().merge(k, v, Integer::sum);
@@ -2904,7 +2955,7 @@ public class JourneyService implements RateSource
 			}
 			for (JourneyEvent e : d.getEvents())
 			{
-				if (e.getType() == EventType.LEVEL && e.getSkill() != null && e.getValue() > 0)
+				if (e.getType() == EventType.LEVEL && e.getSkill() != null && e.getValue() > 0 && (!e.isAway() || awayCounted))
 				{
 					int level = (int) e.getValue();
 					r.getLevelRanges().merge(e.getSkill(), new int[]{level - 1, level},
@@ -3015,6 +3066,7 @@ public class JourneyService implements RateSource
 	{
 		JourneyEvent c = new JourneyEvent(e.getTime(), e.getType(), e.getTitle(), e.getDetail(), e.getSkill(), e.getScreenshot(), e.isHighlight(), e.getValue());
 		c.setNote(e.getNote());
+		c.setAway(e.isAway());
 		return c;
 	}
 

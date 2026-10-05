@@ -112,6 +112,48 @@ public class GoalPlannerTest
 	}
 
 	@Test
+	public void xpOnlyHelpsSkillsTheGoalStillNeeds()
+	{
+		Goal max = new Goal();
+		max.setType(GoalType.MAX_CAPE);
+		assertTrue(GoalPlanner.helps(max, Skill.WOODCUTTING, Skills.xpForLevel(95)));
+		assertFalse(GoalPlanner.helps(max, Skill.STRENGTH, Skills.xpForLevel(99)));
+
+		Goal slayer = skillGoal(Skill.SLAYER, 99, allAtLevel(90));
+		assertTrue(GoalPlanner.helps(slayer, Skill.SLAYER, Skills.xpForLevel(90)));
+		assertFalse(GoalPlanner.helps(slayer, Skill.MINING, Skills.xpForLevel(90)));
+
+		Goal total = new Goal();
+		total.setType(GoalType.TOTAL_LEVEL);
+		assertTrue(GoalPlanner.helps(total, Skill.MINING, Skills.xpForLevel(90)));
+		assertFalse(GoalPlanner.helps(total, Skill.PRAYER, Skills.xpForLevel(99)));
+	}
+
+	@Test
+	public void lastWeekOnlyKeepsXpThatHelped()
+	{
+		Map<String, Long> xp = allAtLevel(99);
+		xp.put(Skill.FISHING.name(), Skills.xpForLevel(90));
+		xp.put(Skill.WOODCUTTING.name(), Skills.xpForLevel(95));
+		Goal g = new Goal();
+		g.setType(GoalType.MAX_CAPE);
+		LocalDate monday = LocalDate.of(2026, 9, 28);
+		GoalPlanner.rollWeek(g, xp, RATES, 20, monday);
+		assertTrue(g.getWeekTargets().containsKey(Skill.FISHING.name()));
+
+		// Strength is already 99 so its XP doesn't move the goal on; Woodcutting's does
+		xp.put(Skill.FISHING.name(), xp.get(Skill.FISHING.name()) + 263_000);
+		xp.put(Skill.STRENGTH.name(), xp.get(Skill.STRENGTH.name()) + 23_000);
+		xp.put(Skill.WOODCUTTING.name(), xp.get(Skill.WOODCUTTING.name()) + 1_200);
+		GoalPlanner.rollWeek(g, xp, RATES, 20, monday.plusWeeks(1));
+
+		Map<String, long[]> results = g.getLastWeekResults();
+		assertEquals(263_000, results.get(Skill.FISHING.name())[1]);
+		assertFalse(results.containsKey(Skill.STRENGTH.name()));
+		assertEquals(1_200, results.get(Skill.WOODCUTTING.name())[1]);
+	}
+
+	@Test
 	public void totalLevelPicksCheapestLevels()
 	{
 		Map<String, Long> xp = allAtLevel(80);

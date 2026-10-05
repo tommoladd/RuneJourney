@@ -39,10 +39,24 @@ public class DayRecord
 	 */
 	private long skillingIncome;
 	/**
-	 * XP gained while RuneJourney wasn't running (e.g. on mobile), included in xpGained and skillXp.
+	 * XP gained while RuneJourney wasn't running (e.g. on mobile) earlier the same day, included in
+	 * xpGained and skillXp.
 	 */
 	private long offlineXp;
 	private Map<String, Long> offlineSkillXp = new HashMap<>();
+	/**
+	 * XP gained while RuneJourney wasn't running in a gap that began on an earlier day (e.g. a
+	 * weekend on mobile), found when logging in on this day. Which day it was gained isn't known,
+	 * so it isn't in xpGained or skillXp; ranges covering the whole gap, from awayFrom to this
+	 * day, count it.
+	 */
+	private long awayXp;
+	private Map<String, Long> awaySkillXp = new HashMap<>();
+	private int awayLevels;
+	/**
+	 * The first day the away XP could have been gained.
+	 */
+	private String awayFrom;
 	private Map<String, Long> skillingIncomeBySkill = new HashMap<>();
 	/**
 	 * Loot split by where it came from. Days recorded before this was added have lootValue

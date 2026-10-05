@@ -56,6 +56,10 @@ final class SkillingRules
 	{
 		Mode mode;
 		Predicate<String> product;
+		/**
+		 * Something that has to be used up for the products to count, or null if anything goes.
+		 */
+		Predicate<String> input;
 	}
 
 	private static final Map<Skill, Rule> RULES = new EnumMap<>(Skill.class);
@@ -63,6 +67,7 @@ final class SkillingRules
 	 * Made with Crafting but only worth anything as part of a birdhouse run, which is Hunter.
 	 */
 	private static final Pattern BIRDHOUSE = Pattern.compile("bird ?house$");
+	private static final Pattern SALVAGE = Pattern.compile("salvage$");
 
 	static
 	{
@@ -72,12 +77,15 @@ final class SkillingRules
 		gather(Skill.FISHING, "^raw ", "^leaping ", " eel$", "^karambwanji$", "^clue bottle", "^casket$");
 		gather(Skill.HUNTER, "chinchompa$", " fur$", " hide$", "^bird nest", "^grimy ", "impling jar$", "^raw ",
 			"^kebbit ", "feather$", "^hunters' loot sack", "^clue nest");
-		RULES.put(Skill.FARMING, new Rule(Mode.GATHER, SkillingRules::isHarvest));
-		RULES.put(Skill.THIEVING, new Rule(Mode.GATHER, name -> true));
+		RULES.put(Skill.FARMING, new Rule(Mode.GATHER, SkillingRules::isHarvest, null));
+		RULES.put(Skill.THIEVING, new Rule(Mode.GATHER, name -> true, null));
+		// Salvage can't be sold, so hauling it in earns nothing; sorting it earns whatever comes out
+		RULES.put(Skill.SAILING, new Rule(Mode.GATHER, name -> !SALVAGE.matcher(name).find(),
+			name -> SALVAGE.matcher(name).find()));
 		for (Skill s : new Skill[]{Skill.COOKING, Skill.CRAFTING, Skill.FLETCHING, Skill.HERBLORE, Skill.SMITHING,
 			Skill.RUNECRAFT, Skill.MAGIC})
 		{
-			RULES.put(s, new Rule(Mode.PROCESS, name -> !BIRDHOUSE.matcher(name).find()));
+			RULES.put(s, new Rule(Mode.PROCESS, name -> !BIRDHOUSE.matcher(name).find(), null));
 		}
 	}
 
@@ -91,7 +99,7 @@ final class SkillingRules
 	private static void gather(Skill skill, String... patterns)
 	{
 		Pattern p = Pattern.compile(String.join("|", patterns));
-		RULES.put(skill, new Rule(Mode.GATHER, name -> p.matcher(name).find()));
+		RULES.put(skill, new Rule(Mode.GATHER, name -> p.matcher(name).find(), null));
 	}
 
 	private static boolean isHarvest(String name)
@@ -133,6 +141,8 @@ final class SkillingRules
 		List<Change> products = new ArrayList<>();
 		long gained = 0;
 		long used = 0;
+		boolean consumed = false;
+		boolean inputUsed = rule.getInput() == null;
 		boolean excluded = false;
 		for (Change c : changes)
 		{
@@ -153,9 +163,11 @@ final class SkillingRules
 			else
 			{
 				used += value;
+				consumed = true;
+				inputUsed |= rule.getInput() != null && rule.getInput().test(name);
 			}
 		}
-		if (products.isEmpty() || excluded)
+		if (products.isEmpty() || excluded || !inputUsed)
 		{
 			return null;
 		}
@@ -163,7 +175,8 @@ final class SkillingRules
 		{
 			return new Income(skill, gained, products);
 		}
-		// Processing has to turn something into something else; gaining items alone isn't it
-		return used == 0 ? null : new Income(skill, gained - used, products);
+		// Processing has to turn something into something worth having; gaining items alone isn't it.
+		// Inputs that can't be sold (dark essence, guardian essence) are worth nothing but still count as used.
+		return !consumed || gained == 0 ? null : new Income(skill, gained - used, products);
 	}
 }

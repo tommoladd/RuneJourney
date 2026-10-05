@@ -64,6 +64,9 @@ Net worth and screenshots can be turned off in the plugin settings.
 ## Notes
 
 - The bank is only visible to plugins while it's open. RuneJourney remembers what was in it (along with
-  your inventory, equipment, looting bag and seed vault) and re-prices it at current GE prices each
-  time you log in, so open your bank once after installing.
+  your potion storage, inventory, equipment, looting bag, seed vault and Grand Exchange offers) and
+  re-prices it at current GE prices each time you log in, so open your bank once after installing.
+- XP gained while RuneJourney isn't running (on mobile, say) is only seen when you next log in. If you
+  last played on an earlier day, RuneJourney can't tell which day it was gained, so it isn't added to
+  today; it's counted in any period that covers the whole gap, such as this month.
 - The game doesn't share your Combat Achievement points total; enter it once when you create a CA points goal.

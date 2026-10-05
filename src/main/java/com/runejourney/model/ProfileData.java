@@ -15,6 +15,11 @@ public class ProfileData
 	private String playerName;
 	private long createdAt;
 	private Map<String, Long> lastXp = new HashMap<>();
+	/**
+	 * Epoch millis when lastXp was last read from the game, so XP found at the next login is known
+	 * to be from after then.
+	 */
+	private long lastXpAt;
 	private Map<String, Integer> killCounts = new HashMap<>();
 	private Map<String, ObservedRate> observedRates = new HashMap<>();
 	/**
@@ -47,7 +52,7 @@ public class ProfileData
 
 	/**
 	 * Every item the account was last seen holding, by container ("bank", "inventory",
-	 * "equipment", "looting bag", "seed vault"): canonical item id to quantity. Kept between
+	 * "equipment", "looting bag", "seed vault", "potion storage", "grand exchange"): canonical item id to quantity. Kept between
 	 * sessions so the bank counts towards net worth without opening it first.
 	 */
 	private Map<String, Map<Integer, Integer>> holdings = new HashMap<>();

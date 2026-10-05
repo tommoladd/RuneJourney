@@ -330,7 +330,7 @@ public interface RuneJourneyConfig extends Config
 	@ConfigItem(
 		keyName = "trackWealth",
 		name = "Track net worth",
-		description = "Value your bank (when you open it), inventory and equipment at GE prices to chart your net worth",
+		description = "Value your bank (when you open it), potion storage, inventory, equipment and Grand Exchange offers at GE prices to chart your net worth",
 		section = wealthSection,
 		position = 0
 	)

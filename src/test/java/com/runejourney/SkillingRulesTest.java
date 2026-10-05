@@ -78,6 +78,53 @@ public class SkillingRulesTest
 	}
 
 	@Test
+	public void untradeableInputsStillCountAsUsed()
+	{
+		// Zeah runecrafting: dark essence fragments can't be sold, so they're worth nothing
+		SkillingRules.Income i = income(xp(Skill.RUNECRAFT), gained("Blood rune", 104, 300),
+			used("Dark essence fragments", 104, 0));
+		assertEquals(Skill.RUNECRAFT, i.getSkill());
+		assertEquals(104 * 300, i.getValue());
+
+		i = income(xp(Skill.RUNECRAFT), gained("Soul rune", 52, 150), used("Dark essence fragments", 52, 0));
+		assertEquals(52 * 150, i.getValue());
+	}
+
+	@Test
+	public void makingSomethingWorthlessIsNotIncome()
+	{
+		// Venerating and chiselling Zeah essence
+		assertNull(income(xp(Skill.RUNECRAFT), gained("Dark essence block", 26, 0), used("Dense essence block", 26, 0)));
+		assertNull(income(xp(Skill.CRAFTING), gained("Dark essence fragments", 4, 0), used("Dark essence block", 1, 0)));
+		// Making guardian essence on the same tick runes leave the inventory isn't a Crafting loss
+		assertNull(income(xp(Skill.CRAFTING), gained("Guardian essence", 10, 0), used("Guardian fragments", 10, 0),
+			used("Nature rune", 60, 100)));
+	}
+
+	@Test
+	public void sortingSalvageEarnsTheLoot()
+	{
+		SkillingRules.Income i = income(xp(Skill.SAILING), used("Small salvage", 1, 0), gained("Bronze bar", 2, 100),
+			gained("Coins", 34, 1));
+		assertEquals(Skill.SAILING, i.getSkill());
+		assertEquals(234, i.getValue());
+		assertEquals(2, i.getProducts().size());
+
+		// Anything else leaving the inventory while sorting isn't charged to Sailing
+		i = income(xp(Skill.SAILING), used("Small salvage", 1, 0), gained("Bones", 1, 80), used("Shark", 1, 900));
+		assertEquals(80, i.getValue());
+	}
+
+	@Test
+	public void sailingWithoutSortingIsNotIncome()
+	{
+		// Hauling salvage in can't be sold
+		assertNull(income(xp(Skill.SAILING), gained("Small salvage", 1, 0)));
+		// Nor is anything else that happens on a Sailing XP drop
+		assertNull(income(xp(Skill.SAILING), gained("Bronze bar", 1, 100), used("Shark", 1, 900)));
+	}
+
+	@Test
 	public void spendingIsNotIncome()
 	{
 		// Teleporting uses runes but makes nothing

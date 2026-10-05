@@ -74,6 +74,28 @@ public class WealthTest
 	}
 
 	@Test
+	public void newlyCountedContainersAreNotMilestones()
+	{
+		JourneyService service = service(null);
+		service.onWealth(parts(9_500_000_000L, 0));
+
+		// Potion storage counted for the first time after updating takes it past 10b: not growth
+		Map<String, Long> withPotions = parts(9_500_000_000L, 0);
+		withPotions.put("potion storage", 600_000_000L);
+		service.onWealth(withPotions);
+		assertEquals(0, records(service));
+
+		// Real growth after it is still celebrated
+		service = service(null);
+		service.onWealth(parts(9_500_000_000L, 0));
+		withPotions.put("potion storage", 300_000_000L);
+		service.onWealth(withPotions);
+		withPotions.put(JourneyService.BANK, 9_800_000_000L);
+		service.onWealth(withPotions);
+		assertEquals(1, records(service));
+	}
+
+	@Test
 	public void holdingsAreKept()
 	{
 		JourneyService service = service(null);
