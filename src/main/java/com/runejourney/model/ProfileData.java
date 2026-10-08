@@ -2,6 +2,7 @@ package com.runejourney.model;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.Data;
@@ -21,7 +22,19 @@ public class ProfileData
 	 */
 	private long lastXpAt;
 	private Map<String, Integer> killCounts = new HashMap<>();
-	private Map<String, ObservedRate> observedRates = new HashMap<>();
+	/**
+	 * Skill name to the training methods saved from the player's own XP rates.
+	 */
+	private Map<String, List<SavedMethod>> savedMethods = new HashMap<>();
+	/**
+	 * Skill name to a rate from 30+ minutes of training that matches none of the saved methods,
+	 * waiting for the player to save or dismiss it. The name is a suggestion.
+	 */
+	private Map<String, SavedMethod> detectedMethods = new HashMap<>();
+	/**
+	 * Skill name to XP/hr rates the player chose not to save, so similar training isn't offered again.
+	 */
+	private Map<String, List<Long>> dismissedRates = new HashMap<>();
 	/**
 	 * Boss name to observed kills (stored in {@code xp}) and time spent.
 	 */
@@ -38,6 +51,10 @@ public class ProfileData
 	private boolean combatTasksFromGame;
 	private int questPoints;
 	private int collectionLogSlots;
+	/**
+	 * Slots in the whole collection log, as the game last said.
+	 */
+	private int collectionLogTotal;
 	/**
 	 * Coins plus platinum tokens (in gp) last seen in the bank, which is only visible while open.
 	 */
@@ -74,6 +91,14 @@ public class ProfileData
 	 * Collection log pages the player has viewed: category name to its items.
 	 */
 	private Map<String, List<ClogItem>> collectionLog = new HashMap<>();
+	/**
+	 * The collection log's tabs and their pages, in the game's order, from the last full sync.
+	 */
+	private Map<String, List<String>> collectionLogTabs = new LinkedHashMap<>();
+	/**
+	 * When the whole collection log was last synced from the game.
+	 */
+	private long collectionLogSyncedAt;
 
 	/**
 	 * Goal shown on the in-game overlay.
@@ -98,4 +123,8 @@ public class ProfileData
 	 * Skill name to preferred training method name.
 	 */
 	private Map<String, String> preferredMethods = new HashMap<>();
+	/**
+	 * Each PC's copy once cloud sync is on for the account, otherwise null.
+	 */
+	private ProfileSync sync;
 }

@@ -53,11 +53,44 @@ in the plugin settings.
 ### Overlay (optional)
 Show a pinned goal, this week's plan, today's stats, your streak or net worth on screen.
 
+### Cloud sync (optional)
+Back up your journey and keep it in step on every PC you play on. Turn on **Cloud sync** in the
+plugin settings, sign in on the RuneJourney website with Discord, make a key and paste it into the
+side panel (click "Cloud sync" under the title). Each account asks once, on each PC, before it's
+saved. One key covers all your accounts; make one per PC so you can revoke a lost laptop on its own.
+
+- Days played on several PCs add up, and XP is never counted twice: logging in waits a moment for
+  your other PCs' records before counting XP gained while away.
+- Goals, notes and settings follow the latest change. Deleting something on one PC deletes it on all.
+- Screenshots stay on your PC for now: cloud sync keeps your journey only.
+- Already have a journey on this PC and in the cloud? Choose to use the cloud's (this PC's is backed
+  up first) or combine both.
+- Optionally make an account's journey public, at its own page on the RuneJourney website: your
+  character in 3D, levels, kills, timeline, goals and records. Notes, memories and net worth stay
+  hidden unless you show them, and you choose whether it appears in the website's search.
+  The character is copied while you stand still, each time you wear something new. Boss kills and
+  clues are topped up from the official hiscores, and choosing **RuneJourney** in the collection
+  log's menu (top left of the log) puts your whole collection log on the page. Every quest (finished,
+  started or not started) and combat task (done or not) goes with it, read from the game as you play.
+
 ## Privacy
 
-RuneJourney works entirely on your computer. It makes **no network requests** and sends nothing to any
-server. Your data is stored in `.runelite/plugin-data/runejourney/`, one folder per account.
-Reports are only created when you export them.
+Without cloud sync, RuneJourney works entirely on your computer: it makes **no network requests** and
+sends nothing to any server. Your data is stored in `.runelite/plugin-data/runejourney/`, one folder
+per account. Reports are only created when you export them.
+
+Cloud sync is off unless you turn it on. When it's on:
+- Everything is **encrypted on your PC** before it's uploaded, and the cloud never receives your
+  account name (RSN) or account hash. Accounts are matched between your PCs by a one-way fingerprint.
+- The one exception is an account you make public: its page shows its RuneScape name and the parts of
+  its journey you chose, unencrypted, for anyone to see. Make it private again and the page is deleted.
+- RuneJourney's server and its storage provider see your IP address.
+- The plugin only ever connects to the RuneJourney website (and, for public pages, the official
+  hiscores through RuneLite). Every file goes to and from the website, which stores it.
+- Your key is kept in `plugin-data/runejourney/cloud/`, not in RuneLite's settings.
+- What sync does is logged in `plugin-data/runejourney/cloud/sync.log` (open it from the side panel):
+  each request and how it went, never your key or a download address.
+- Delete one account's cloud data, or everything, on the website, signed in with Discord.
 
 Net worth and screenshots can be turned off in the plugin settings.
 

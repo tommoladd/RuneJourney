@@ -8,6 +8,10 @@ import lombok.NoArgsConstructor;
 public class JourneyEvent
 {
 	/**
+	 * Identifies the event across saves and devices, see {@link com.runejourney.sync.EventIds}.
+	 */
+	private String id;
+	/**
 	 * Epoch millis when the event happened.
 	 */
 	private long time;
@@ -39,6 +43,11 @@ public class JourneyEvent
 	 * {@link DayRecord#getAwayFrom()}; it was only noticed when this was recorded.
 	 */
 	private boolean away;
+	/**
+	 * Added by the player as a memory, not recorded from the game. Like notes, memories only show on
+	 * a public page when the player chooses.
+	 */
+	private boolean memory;
 
 	public JourneyEvent(long time, EventType type, String title, String detail, String skill, String screenshot,
 		boolean highlight, long value)
@@ -51,5 +60,15 @@ public class JourneyEvent
 		this.screenshot = screenshot;
 		this.highlight = highlight;
 		this.value = value;
+	}
+
+	public JourneyEvent copy()
+	{
+		JourneyEvent c = new JourneyEvent(time, type, title, detail, skill, screenshot, highlight, value);
+		c.setId(id);
+		c.setNote(note);
+		c.setAway(away);
+		c.setMemory(memory);
+		return c;
 	}
 }

@@ -15,4 +15,13 @@ public class ClogItem
 	private int id;
 	private String name;
 	private boolean obtained;
+	/**
+	 * How many have been obtained, when known (from a full collection log sync), else 0.
+	 */
+	private int quantity;
+
+	public ClogItem(int id, String name, boolean obtained)
+	{
+		this(id, name, obtained, 0);
+	}
 }

@@ -10,11 +10,6 @@ import net.runelite.api.Skill;
  */
 public final class XpRates
 {
-	/**
-	 * Observed rates are only trusted after this much active training time.
-	 */
-	public static final long MIN_OBSERVED_MILLIS = 30 * 60 * 1000L;
-
 	private static final Map<Skill, int[]> RATES = new EnumMap<>(Skill.class);
 
 	static

@@ -34,6 +34,17 @@ public class ScreenshotService
 	@Setter
 	private volatile ExecutorService executor;
 
+	/**
+	 * Told about each screenshot once it's saved, on the executor.
+	 */
+	public interface Listener
+	{
+		void saved(String profileKey, String name, String title);
+	}
+
+	@Setter
+	private volatile Listener listener;
+
 	private final List<Pending> pending = new ArrayList<>();
 
 	@AllArgsConstructor
@@ -41,6 +52,7 @@ public class ScreenshotService
 	{
 		String profileKey;
 		String name;
+		String title;
 		int dueTick;
 	}
 
@@ -62,7 +74,7 @@ public class ScreenshotService
 			slug = slug.substring(0, 40);
 		}
 		String name = LocalDateTime.now().format(FILE_TIME) + "_" + slug + "_" + (pending.size() + 1) + ".png";
-		pending.add(new Pending(profileKey, name, currentTick + DELAY_TICKS));
+		pending.add(new Pending(profileKey, name, title, currentTick + DELAY_TICKS));
 		return name;
 	}
 
@@ -107,6 +119,12 @@ public class ScreenshotService
 				catch (IOException e)
 				{
 					log.warn("Unable to save RuneJourney screenshot {}", p.name, e);
+					return;
+				}
+				Listener l = listener;
+				if (l != null)
+				{
+					l.saved(p.profileKey, p.name, p.title);
 				}
 			});
 		});

@@ -6,6 +6,7 @@ import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
 import net.runelite.client.config.ConfigSection;
 import net.runelite.client.config.Range;
+import net.runelite.client.config.Units;
 
 @ConfigGroup(RuneJourneyConfig.GROUP)
 public interface RuneJourneyConfig extends Config
@@ -35,7 +36,7 @@ public interface RuneJourneyConfig extends Config
 
 	@ConfigSection(
 		name = "Wealth",
-		description = "Net worth tracking (bank, inventory and equipment at GE prices). Stays on your computer.",
+		description = "Net worth tracking (bank, inventory and equipment at GE prices). Stays on your computer unless cloud sync is on.",
 		position = 3
 	)
 	String wealthSection = "wealth";
@@ -61,6 +62,51 @@ public interface RuneJourneyConfig extends Config
 		closedByDefault = true
 	)
 	String encouragementSection = "encouragement";
+
+	@ConfigSection(
+		name = "Cloud",
+		description = "Back up your journey and keep it in step on every PC you play on. Connect from the RuneJourney side panel.",
+		position = 7
+	)
+	String cloudSection = "cloud";
+
+	@ConfigItem(
+		keyName = "cloudSync",
+		name = "Cloud sync",
+		description = "Save your journey, goals and screenshots (encrypted) to your RuneJourney account, so you can use them on any PC. Connect from the RuneJourney side panel.",
+		warning = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers",
+		section = cloudSection,
+		position = 0
+	)
+	default boolean cloudSync()
+	{
+		return false;
+	}
+
+	// Hidden while screenshot backup is off (SyncManager.SCREENSHOTS)
+	@ConfigItem(
+		keyName = "cloudScreenshots",
+		name = "Back up screenshots",
+		description = "Upload smaller copies of the screenshots RuneJourney takes. 100 MB of cloud space for screenshots is free; when it's full, new ones are still saved on this PC.",
+		section = cloudSection,
+		position = 1,
+		hidden = true
+	)
+	default boolean cloudScreenshots()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+		keyName = "cloudServer",
+		name = "Cloud server",
+		description = "A development server to sync with instead of runejourney.org. Only used when RuneLite runs in developer mode",
+		hidden = true
+	)
+	default String cloudServer()
+	{
+		return "";
+	}
 
 	@ConfigItem(
 		keyName = "logEveryLevel",
@@ -293,7 +339,7 @@ public interface RuneJourneyConfig extends Config
 	@ConfigItem(
 		keyName = "intensity",
 		name = "Training intensity",
-		description = "Used to pick generic XP/hr estimates until RuneJourney has learned your own rates",
+		description = "Used to pick generic XP/hr estimates for skills where you haven't saved your own rate",
 		section = plannerSection,
 		position = 0
 	)
@@ -317,14 +363,40 @@ public interface RuneJourneyConfig extends Config
 
 	@ConfigItem(
 		keyName = "usePersonalRates",
-		name = "Use my own XP rates",
-		description = "Once enough training has been observed, use your real XP/hr instead of generic estimates",
+		name = "Use my saved XP rates",
+		description = "For skills where you haven't chosen a training method, plan with the saved rate you trained most recently",
 		section = plannerSection,
 		position = 2
 	)
 	default boolean usePersonalRates()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = "offerSavedRates",
+		name = "Offer to save XP rates",
+		description = "After training a skill for the sample time below at a rate none of your saved methods match, say so in chat and offer to save it in the side panel",
+		section = plannerSection,
+		position = 3
+	)
+	default boolean offerSavedRates()
+	{
+		return true;
+	}
+
+	@Range(min = 5, max = 60)
+	@Units(Units.MINUTES)
+	@ConfigItem(
+		keyName = "rateSampleMinutes",
+		name = "XP rate sample time",
+		description = "How long you need to train a skill without a break before RuneJourney measures your XP rate. Longer samples are more accurate",
+		section = plannerSection,
+		position = 4
+	)
+	default int rateSampleMinutes()
+	{
+		return 15;
 	}
 
 	@ConfigItem(

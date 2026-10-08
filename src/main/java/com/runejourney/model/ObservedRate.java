@@ -3,7 +3,7 @@ package com.runejourney.model;
 import lombok.Data;
 
 /**
- * XP gained while actively training a skill, used to personalise XP/hr estimates.
+ * An amount observed over active time, such as boss kills and the time spent on them.
  */
 @Data
 public class ObservedRate

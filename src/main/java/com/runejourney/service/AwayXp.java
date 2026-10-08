@@ -62,7 +62,8 @@ final class AwayXp
 	 */
 	static boolean migrate(DayRecord day, NavigableMap<String, DayRecord> days)
 	{
-		if (day.getOfflineXp() <= 0 || day.getAwayFrom() != null)
+		// Days with XP ranges were saved after away XP was kept aside
+		if (day.getOfflineXp() <= 0 || day.getAwayFrom() != null || !day.getOfflineRanges().isEmpty())
 		{
 			return false;
 		}

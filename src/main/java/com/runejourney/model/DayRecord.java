@@ -74,10 +74,29 @@ public class DayRecord
 	private int combatTasks;
 	private int combatTaskPoints;
 	/**
+	 * Skill name to the stretches of XP gained while playing, as [from, to] XP totals. Days recorded
+	 * before this was added have none.
+	 */
+	private Map<String, List<long[]>> xpRanges = new HashMap<>();
+	/**
+	 * Skill name to the XP found at login that was gained earlier the same day (see offlineXp), as
+	 * [from, to] XP totals.
+	 */
+	private Map<String, List<long[]>> offlineRanges = new HashMap<>();
+	/**
+	 * Skill name to the XP found at login from a gap that began on an earlier day (see awayXp), as
+	 * [from, to] XP totals.
+	 */
+	private Map<String, List<long[]>> awayRanges = new HashMap<>();
+	/**
 	 * Skill XP and account counters as they stood at the end of the day, for "since" comparisons.
 	 */
 	private Map<String, Long> snapshot = new HashMap<>();
 	private List<JourneyEvent> events = new ArrayList<>();
+	/**
+	 * Each PC's part of the day once cloud sync is on for the account, otherwise null.
+	 */
+	private DaySync sync;
 
 	public DayRecord(String date)
 	{

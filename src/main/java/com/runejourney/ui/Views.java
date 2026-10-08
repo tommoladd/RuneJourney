@@ -1,6 +1,7 @@
 package com.runejourney.ui;
 
 import com.runejourney.RuneJourneyPlugin;
+import com.runejourney.cloud.SyncManager;
 import com.runejourney.model.JourneyEvent;
 import com.runejourney.planner.Skills;
 import com.runejourney.service.JourneyService;
@@ -48,6 +49,7 @@ class Views
 	private final JourneyService service;
 	private final JourneyStore store;
 	private final RuneJourneyPlugin plugin;
+	private final SyncManager sync;
 	private final Map<Skill, ImageIcon> icons = new EnumMap<>(Skill.class);
 	@Setter
 	private Runnable onChange = () ->
@@ -55,12 +57,13 @@ class Views
 	};
 
 	@Inject
-	Views(SkillIconManager skillIconManager, JourneyService service, JourneyStore store, RuneJourneyPlugin plugin)
+	Views(SkillIconManager skillIconManager, JourneyService service, JourneyStore store, RuneJourneyPlugin plugin, SyncManager sync)
 	{
 		this.skillIconManager = skillIconManager;
 		this.service = service;
 		this.store = store;
 		this.plugin = plugin;
+		this.sync = sync;
 	}
 
 	ImageIcon skillIcon(Skill skill)
@@ -124,7 +127,7 @@ class Views
 			JMenuItem removeNote = new JMenuItem("Remove note");
 			removeNote.addActionListener(a ->
 			{
-				service.setEventNote(day, e.getTime(), e.getTitle(), null);
+				service.setEventNote(day, e.getId(), null);
 				onChange.run();
 			});
 			menu.add(removeNote);
@@ -141,7 +144,7 @@ class Views
 					"RuneJourney", JOptionPane.OK_CANCEL_OPTION);
 				if (ok == JOptionPane.OK_OPTION)
 				{
-					service.deleteEvent(date, e.getTime(), e.getTitle());
+					service.deleteEvent(date, e.getId());
 					onChange.run();
 				}
 			});
@@ -188,7 +191,7 @@ class Views
 		{
 			text = text.substring(0, MAX_NOTE_LENGTH);
 		}
-		service.setEventNote(day, e.getTime(), e.getTitle(), text);
+		service.setEventNote(day, e.getId(), text);
 		onChange.run();
 	}
 
@@ -230,22 +233,30 @@ class Views
 				log.warn("Unable to read screenshot {}", name, ex);
 				image = null;
 			}
-			BufferedImage result = image;
-			SwingUtilities.invokeLater(() ->
+			if (image == null && sync.media().containsKey(SyncManager.mediaId(name)))
 			{
-				if (result == null)
-				{
-					JOptionPane.showMessageDialog(null, "That screenshot could not be found.", "RuneJourney", JOptionPane.WARNING_MESSAGE);
-					return;
-				}
-				Image scaled = result;
-				if (result.getWidth() > 900)
-				{
-					scaled = result.getScaledInstance(900, result.getHeight() * 900 / result.getWidth(), Image.SCALE_SMOOTH);
-				}
-				JOptionPane.showMessageDialog(null, new JLabel(new ImageIcon(scaled)), title, JOptionPane.PLAIN_MESSAGE);
-			});
+				// Taken on another PC: fetch it from the cloud
+				sync.openFromCloud(key, name).whenComplete((cloud, e) -> SwingUtilities.invokeLater(() -> show(cloud, title)));
+				return;
+			}
+			BufferedImage result = image;
+			SwingUtilities.invokeLater(() -> show(result, title));
 		});
+	}
+
+	private static void show(BufferedImage image, String title)
+	{
+		if (image == null)
+		{
+			JOptionPane.showMessageDialog(null, "That screenshot could not be found.", "RuneJourney", JOptionPane.WARNING_MESSAGE);
+			return;
+		}
+		Image scaled = image;
+		if (image.getWidth() > 900)
+		{
+			scaled = image.getScaledInstance(900, image.getHeight() * 900 / image.getWidth(), Image.SCALE_SMOOTH);
+		}
+		JOptionPane.showMessageDialog(null, new JLabel(new ImageIcon(scaled)), title, JOptionPane.PLAIN_MESSAGE);
 	}
 
 	JPanel session(SessionView s)

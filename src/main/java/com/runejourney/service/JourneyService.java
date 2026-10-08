@@ -2,8 +2,11 @@ package com.runejourney.service;
 
 import com.google.gson.Gson;
 import com.runejourney.RuneJourneyConfig;
+import com.runejourney.cloud.SyncManager;
 import com.runejourney.model.ClogItem;
 import com.runejourney.model.DayRecord;
+import com.runejourney.model.DaySlice;
+import com.runejourney.model.DaySync;
 import com.runejourney.model.EventType;
 import com.runejourney.model.Goal;
 import com.runejourney.model.GoalItem;
@@ -14,6 +17,9 @@ import com.runejourney.model.JourneyEvent;
 import com.runejourney.model.LootSource;
 import com.runejourney.model.ObservedRate;
 import com.runejourney.model.ProfileData;
+import com.runejourney.model.ProfileSlice;
+import com.runejourney.model.ProfileSync;
+import com.runejourney.model.SavedMethod;
 import com.runejourney.planner.BossData;
 import com.runejourney.planner.Counters;
 import com.runejourney.planner.GoalPlanner;
@@ -23,9 +29,17 @@ import com.runejourney.planner.Skills;
 import com.runejourney.planner.TrainingMethod;
 import com.runejourney.planner.TrainingMethods;
 import com.runejourney.planner.XpRates;
+import com.runejourney.sync.DaySlices;
+import com.runejourney.sync.Envelope;
+import com.runejourney.sync.EventIds;
+import com.runejourney.sync.Hlc;
+import com.runejourney.sync.ProfileJoin;
+import com.runejourney.sync.Trees;
 import com.runejourney.util.Format;
 import java.io.IOException;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -63,9 +77,19 @@ public class JourneyService implements RateSource
 {
 	private static final int TICK_MILLIS = 600;
 	/**
-	 * Gaps between XP drops longer than this are treated as not actively training.
+	 * A gap between XP drops in a skill longer than this (5 minutes) ends a stretch of training it.
+	 * Shorter gaps, such as bank trips, count towards the stretch's time.
 	 */
-	private static final int ACTIVE_GAP_TICKS = 100;
+	private static final int STINT_GAP_TICKS = 500;
+	/**
+	 * How far a rate can be from a saved method's, as a fraction of it, and still count as that method.
+	 */
+	private static final double SAME_METHOD_TOLERANCE = 0.15;
+	/**
+	 * Rates the player chose not to save that are remembered per skill.
+	 */
+	private static final int MAX_DISMISSED_RATES = 5;
+	private static final int MAX_METHOD_NAME = 30;
 	/**
 	 * How close (in ticks) a kill count message must be to relate it to a PB, drop or pet.
 	 */
@@ -83,7 +107,14 @@ public class JourneyService implements RateSource
 	 * Play streaks only become records worth mentioning after this many days.
 	 */
 	private static final int MIN_STREAK_RECORD = 3;
-	public static final String OWN_RATE = "My own XP rate";
+	/**
+	 * Marks saved methods in the method choices, so they can't clash with the built-in ones.
+	 */
+	private static final String SAVED_SUFFIX = " (yours)";
+	/**
+	 * The method choice that used a lifetime average of all training, before methods could be saved.
+	 */
+	private static final String LEGACY_OWN_RATE = "My own XP rate";
 	/**
 	 * Kills needed before the player's own kill times are trusted.
 	 */
@@ -112,11 +143,39 @@ public class JourneyService implements RateSource
 	private final TreeMap<String, DayRecord> days = new TreeMap<>();
 	private final Set<String> dirtyDays = new HashSet<>();
 	private boolean profileDirty;
+	/**
+	 * Every Journey event's ID, so an event with a fixed ID is only recorded once.
+	 */
+	private final Set<String> eventIds = new HashSet<>();
+	/**
+	 * Days changed since this PC last worked out its own part of them for cloud sync.
+	 */
+	private final Set<String> syncDays = new HashSet<>();
+	private boolean syncProfile;
+	/**
+	 * Days replaced by the cloud's journey, whose files are deleted on the next save.
+	 */
+	private final Set<String> removedDays = new HashSet<>();
+	/**
+	 * The account's quests and combat tasks, as last read from the game, for its public page. Not
+	 * saved: they're read again each time the account logs in.
+	 */
+	private PublicAchievements achievements;
+	/**
+	 * Bumped whenever a profile is loaded or unloaded, so cloud results meant for an earlier one are
+	 * ignored.
+	 */
+	@Getter
+	private volatile int generation;
+	private final Gson syncGson;
 
 	private final Map<String, Long> xp = new HashMap<>();
 	@Getter
 	private volatile boolean baselineSet;
-	private final Map<String, Integer> lastXpTick = new HashMap<>();
+	/**
+	 * Skill name to the stretch of training it is in (or was last in) this session.
+	 */
+	private final Map<String, Stint> stints = new HashMap<>();
 	private String lastRollDate;
 	private int currentTick;
 
@@ -149,6 +208,42 @@ public class JourneyService implements RateSource
 	}
 
 	/**
+	 * Continuous training of one skill, whose rate is the rate of the method being trained.
+	 */
+	private static class Stint
+	{
+		long xp;
+		long millis;
+		int lastTick;
+		/**
+		 * Set once it has run long enough to be compared with the saved methods.
+		 */
+		boolean checked;
+		/**
+		 * The detected rate this stint is offering to save, kept up to date as training goes on.
+		 */
+		SavedMethod offer;
+		/**
+		 * Items made or gathered, to suggest a name for the method.
+		 */
+		final Map<String, Integer> products = new HashMap<>();
+
+		double xpPerHour()
+		{
+			return millis <= 0 ? 0 : xp * 3_600_000d / millis;
+		}
+
+		String mainProduct()
+		{
+			return products.entrySet().stream()
+				.filter(e -> !"Coins".equals(e.getKey()))
+				.max(Map.Entry.comparingByValue())
+				.map(Map.Entry::getKey)
+				.orElse(null);
+		}
+	}
+
+	/**
 	 * Incremented on any change so the UI knows when to refresh.
 	 */
 	@Getter
@@ -170,6 +265,7 @@ public class JourneyService implements RateSource
 		this.gson = gson;
 		this.chatMessageManager = chatMessageManager;
 		this.trainingMethods = trainingMethods;
+		this.syncGson = Trees.withoutSync(gson);
 	}
 
 	// ------------------------------------------------------------------
@@ -183,8 +279,10 @@ public class JourneyService implements RateSource
 
 	public synchronized void install(String key, JourneyStore.Loaded loaded)
 	{
+		generation++;
 		profileKey = key;
 		profile = loaded.getProfile() != null ? loaded.getProfile() : new ProfileData();
+		achievements = null;
 		if (profile.getCreatedAt() == 0)
 		{
 			profile.setCreatedAt(System.currentTimeMillis());
@@ -193,8 +291,26 @@ public class JourneyService implements RateSource
 		days.clear();
 		days.putAll(loaded.getDays());
 		dirtyDays.clear();
+		syncDays.clear();
+		syncProfile = false;
+		removedDays.clear();
 		cleanEventText();
+		eventIds.clear();
+		for (DayRecord d : days.values())
+		{
+			if (EventIds.assignMissing(d))
+			{
+				dirtyDays.add(d.getDate());
+			}
+			d.getEvents().forEach(e -> eventIds.add(e.getId()));
+		}
 		migrateWealth();
+		// The lifetime average was dragged down by early, slower training. Plans fall back to the
+		// generic estimate until the player saves a rate of their own.
+		if (profile.getPreferredMethods().values().removeIf(LEGACY_OWN_RATE::equals))
+		{
+			profileDirty = true;
+		}
 		for (DayRecord d : days.values())
 		{
 			if (AwayXp.migrate(d, days))
@@ -227,7 +343,9 @@ public class JourneyService implements RateSource
 	}
 
 	/**
-	 * Fixes entries saved before the parser removed the game's colour markers (e.g. "@ach_comp@").
+	 * Fixes entries saved before the parser removed the game's colour markers (e.g. "@ach_comp@"),
+	 * and marks memories added before they were marked. A memory's time is a whole minute (the
+	 * player types HH:MM); a recorded event's almost never is.
 	 */
 	private void cleanEventText()
 	{
@@ -239,6 +357,11 @@ public class JourneyService implements RateSource
 				if (title != null && !title.equals(e.getTitle()))
 				{
 					e.setTitle(title);
+					dirtyDays.add(d.getDate());
+				}
+				if (!e.isMemory() && e.getTime() > 0 && e.getTime() % 60_000 == 0)
+				{
+					e.setMemory(true);
 					dirtyDays.add(d.getDate());
 				}
 			}
@@ -332,6 +455,7 @@ public class JourneyService implements RateSource
 				if (profile.getBestWealth() < m && now >= m)
 				{
 					JourneyEvent e = event(EventType.RECORD, "Net worth passed " + Format.compact(m), Format.compact(now) + " gp");
+					e.setId(EventIds.fixed("wealth", m));
 					e.setValue(m);
 					e.setHighlight(true);
 					addEvent(e, false);
@@ -405,7 +529,118 @@ public class JourneyService implements RateSource
 		}
 		profile.getCollectionLog().put(page, new ArrayList<>(items));
 		profileDirty = true;
+		tickItemGoals(items);
+		if (baselineSet)
+		{
+			checkGoals();
+		}
+		changed(false);
+	}
 
+	/**
+	 * The whole collection log, synced from the game: every page, in its tabs.
+	 *
+	 * @param tabs tab name to its pages, in the game's order
+	 * @param pages page name to its items
+	 */
+	public synchronized void onCollectionLog(Map<String, List<String>> tabs, Map<String, List<ClogItem>> pages)
+	{
+		if (profile == null || pages.isEmpty())
+		{
+			return;
+		}
+		pages.forEach((page, items) ->
+		{
+			if (!items.equals(profile.getCollectionLog().get(page)))
+			{
+				profile.getCollectionLog().put(page, new ArrayList<>(items));
+			}
+			tickItemGoals(items);
+		});
+		profile.setCollectionLogTabs(new LinkedHashMap<>(tabs));
+		profile.setCollectionLogSyncedAt(System.currentTimeMillis());
+		profileDirty = true;
+		if (baselineSet)
+		{
+			checkGoals();
+		}
+		changed(false);
+	}
+
+	/**
+	 * The collection log for the account's public page, or null until it's been synced in full.
+	 */
+	public synchronized PublicCollectionLog publicCollectionLog(String key, int gen)
+	{
+		if (!isCurrent(key, gen) || profile.getCollectionLogTabs().isEmpty())
+		{
+			return null;
+		}
+		PublicCollectionLog out = new PublicCollectionLog();
+		out.setSyncedAt(Instant.ofEpochMilli(profile.getCollectionLogSyncedAt()).atOffset(ZoneOffset.UTC).withNano(0).toString());
+		profile.getCollectionLogTabs().forEach((tab, pageNames) ->
+		{
+			PublicCollectionLog.Tab t = new PublicCollectionLog.Tab();
+			t.setName(tab);
+			for (String pageName : pageNames)
+			{
+				List<ClogItem> items = profile.getCollectionLog().get(pageName);
+				if (items == null)
+				{
+					continue;
+				}
+				PublicCollectionLog.Page p = new PublicCollectionLog.Page();
+				p.setName(pageName);
+				for (ClogItem ci : items)
+				{
+					p.getItems().add(new int[]{ci.getId(), ci.isObtained() ? Math.max(1, ci.getQuantity()) : 0});
+					out.getItems().putIfAbsent(String.valueOf(ci.getId()), ci.getName());
+				}
+				t.getPages().add(p);
+			}
+			out.getTabs().add(t);
+		});
+		return out;
+	}
+
+	// ------------------------------------------------------------------
+	// Quests and combat tasks
+	// ------------------------------------------------------------------
+
+	/**
+	 * Every quest and combat task, as just read from the game.
+	 */
+	public synchronized void onAchievements(List<PublicAchievements.Quest> quests, List<PublicAchievements.CombatTask> tasks)
+	{
+		if (profile == null || (quests.isEmpty() && tasks.isEmpty()))
+		{
+			return;
+		}
+		if (achievements != null && quests.equals(achievements.getQuests()) && tasks.equals(achievements.getCombatTasks()))
+		{
+			return;
+		}
+		PublicAchievements a = new PublicAchievements();
+		a.setSyncedAt(Instant.now().atOffset(ZoneOffset.UTC).withNano(0).toString());
+		a.setQuests(new ArrayList<>(quests));
+		a.setCombatTasks(new ArrayList<>(tasks));
+		achievements = a;
+	}
+
+	/**
+	 * The account's quests and combat tasks for its public page, or null until they've been read
+	 * from the game since it logged in.
+	 */
+	public synchronized PublicAchievements publicAchievements(String key, int gen)
+	{
+		return isCurrent(key, gen) ? achievements : null;
+	}
+
+	/**
+	 * Obtained items tick off item goals quietly, since they may have been obtained long ago.
+	 */
+	private void tickItemGoals(List<ClogItem> items)
+	{
 		long now = System.currentTimeMillis();
 		for (Goal g : profile.getGoals())
 		{
@@ -429,11 +664,6 @@ public class JourneyService implements RateSource
 				}
 			}
 		}
-		if (baselineSet)
-		{
-			checkGoals();
-		}
-		changed(false);
 	}
 
 	/**
@@ -510,6 +740,7 @@ public class JourneyService implements RateSource
 			if (streaks[0] >= MIN_STREAK_RECORD && profile.getBestPlayStreak() > 0)
 			{
 				JourneyEvent e = event(EventType.RECORD, STREAK_RECORD_TITLE, streaks[0] + " days in a row");
+				e.setId(EventIds.fixed("streak", streaks[0]));
 				e.setHighlight(true);
 				addEvent(e, false);
 			}
@@ -581,10 +812,10 @@ public class JourneyService implements RateSource
 		dayRecord(out, "Most time played in a day", d -> d.getPlayMillis(), Format::duration);
 		dayRecord(out, "Best income day", d -> d.getLootValue() + d.getSkillingIncome(), v -> Format.compact(v) + " gp");
 		dayRecord(out, "Most boss kills in a day", d -> d.getBossKills().values().stream().mapToLong(Integer::longValue).sum(),
-			v -> Format.number(v) + " kills");
+			v -> Format.number(v) + (v == 1 ? " kill" : " kills"));
 		dayRecord(out, "Most levels in a day", d -> d.getLevelsGained(), v -> v + (v == 1 ? " level" : " levels"));
 		dayRecord(out, "Most clues in a day", d -> d.getCluesCompleted(), v -> v + (v == 1 ? " clue" : " clues"));
-		dayRecord(out, "Most collection log slots in a day", d -> d.getCollectionLogSlots(), v -> v + " slots");
+		dayRecord(out, "Most collection log slots in a day", d -> d.getCollectionLogSlots(), v -> v + (v == 1 ? " slot" : " slots"));
 
 		// Best week (Monday to Sunday) for XP
 		Map<LocalDate, Long> weeks = new TreeMap<>();
@@ -990,13 +1221,30 @@ public class JourneyService implements RateSource
 		return true;
 	}
 
+	/**
+	 * Stops waiting for a load that turned out not to be needed.
+	 */
+	public synchronized void cancelLoad(String key)
+	{
+		if (key.equals(pendingKey))
+		{
+			pendingKey = null;
+		}
+	}
+
 	public synchronized void unload()
 	{
+		generation++;
 		pendingKey = null;
 		profileKey = null;
 		profile = null;
+		achievements = null;
 		days.clear();
 		dirtyDays.clear();
+		eventIds.clear();
+		syncDays.clear();
+		syncProfile = false;
+		removedDays.clear();
 		profileDirty = false;
 		xp.clear();
 		resetSessionState();
@@ -1010,7 +1258,7 @@ public class JourneyService implements RateSource
 	{
 		finishPlaySession();
 		baselineSet = false;
-		lastXpTick.clear();
+		stints.clear();
 		lastRollDate = null;
 		lastKcBoss = null;
 		pendingPbTime = null;
@@ -1023,7 +1271,7 @@ public class JourneyService implements RateSource
 	 */
 	public synchronized Runnable collectWrites()
 	{
-		if (profile == null || (!profileDirty && dirtyDays.isEmpty()))
+		if (profile == null || (!profileDirty && dirtyDays.isEmpty() && removedDays.isEmpty()))
 		{
 			return null;
 		}
@@ -1032,6 +1280,12 @@ public class JourneyService implements RateSource
 		if (todayRecord != null && baselineSet)
 		{
 			todayRecord.setSnapshot(state());
+		}
+		if (profile.getSync() != null)
+		{
+			// Still to be worked into this PC's part for cloud sync
+			syncDays.addAll(dirtyDays);
+			syncProfile |= profileDirty;
 		}
 		String profileJson = profileDirty ? gson.toJson(profile) : null;
 		Map<String, String> dayJson = new LinkedHashMap<>();
@@ -1043,8 +1297,11 @@ public class JourneyService implements RateSource
 				dayJson.put(date, gson.toJson(d));
 			}
 		}
+		Set<String> removed = new HashSet<>(removedDays);
+		removed.removeAll(days.keySet());
 		profileDirty = false;
 		dirtyDays.clear();
+		removedDays.clear();
 
 		return () ->
 		{
@@ -1057,6 +1314,10 @@ public class JourneyService implements RateSource
 				for (Map.Entry<String, String> e : dayJson.entrySet())
 				{
 					store.writeDay(key, e.getKey(), e.getValue());
+				}
+				for (String date : removed)
+				{
+					store.deleteDay(key, date);
 				}
 			}
 			catch (IOException e)
@@ -1134,18 +1395,21 @@ public class JourneyService implements RateSource
 					d.setOfflineXp(d.getOfflineXp() + gained);
 					d.getOfflineSkillXp().merge(s.name(), gained, Long::sum);
 					d.setLevelsGained(d.getLevelsGained() + newLevel - oldLevel);
+					addRange(d.getOfflineRanges(), s.name(), before, now);
 				}
 				else
 				{
 					d.setAwayXp(d.getAwayXp() + gained);
 					d.getAwaySkillXp().merge(s.name(), gained, Long::sum);
 					d.setAwayLevels(d.getAwayLevels() + newLevel - oldLevel);
+					addRange(d.getAwayRanges(), s.name(), before, now);
 				}
 
 				if (newLevel > oldLevel)
 				{
 					JourneyEvent e = event(EventType.LEVEL, "Level " + newLevel + " " + s.getName(),
 						Format.number(now) + " XP " + AwayXp.LEVEL_SUFFIX);
+					e.setId(EventIds.fixed("level", s.name(), newLevel));
 					e.setSkill(s.name());
 					e.setValue(newLevel);
 					e.setHighlight(isMilestoneLevel(newLevel));
@@ -1244,14 +1508,9 @@ public class JourneyService implements RateSource
 		DayRecord d = today();
 		d.setXpGained(d.getXpGained() + delta);
 		d.getSkillXp().merge(key, delta, Long::sum);
+		addRange(d.getXpRanges(), key, old, newXp);
 
-		Integer last = lastXpTick.put(key, tick);
-		if (last != null && tick - last <= ACTIVE_GAP_TICKS)
-		{
-			ObservedRate rate = profile.getObservedRates().computeIfAbsent(key, k -> new ObservedRate());
-			rate.setXp(rate.getXp() + delta);
-			rate.setMillis(rate.getMillis() + (long) (tick - last) * TICK_MILLIS);
-		}
+		trainingStint(skill, delta, tick);
 
 		int oldLevel = Skills.level(old);
 		int newLevel = Skills.level(newXp);
@@ -1272,10 +1531,144 @@ public class JourneyService implements RateSource
 			}
 		}
 
-		checkDailyRecord(d.getXpGained(), profile.getBestXpDay(), XP_RECORD_TITLE, Format.compact(d.getXpGained()) + " XP");
+		checkDailyRecord("xp", d.getXpGained(), profile.getBestXpDay(), XP_RECORD_TITLE, Format.compact(d.getXpGained()) + " XP");
 		profile.setBestXpDay(Math.max(profile.getBestXpDay(), d.getXpGained()));
 		checkGoals();
 		changed(false);
+	}
+
+	/**
+	 * Adds XP gained from one total to another, extending the skill's last range when it carries on
+	 * from where that one ended.
+	 */
+	private static void addRange(Map<String, List<long[]>> ranges, String skill, long from, long to)
+	{
+		List<long[]> list = ranges.computeIfAbsent(skill, k -> new ArrayList<>());
+		long[] last = list.isEmpty() ? null : list.get(list.size() - 1);
+		if (last != null && last[1] == from)
+		{
+			last[1] = to;
+		}
+		else
+		{
+			list.add(new long[]{from, to});
+		}
+	}
+
+	/**
+	 * Follows continuous training of a skill. Once it has gone on for the sample time its rate is compared
+	 * with the player's saved methods: a match becomes the method they train with now, and a rate
+	 * that matches none of them is offered to be saved.
+	 */
+	private void trainingStint(Skill skill, long delta, int tick)
+	{
+		String key = skill.name();
+		Stint stint = stints.get(key);
+		// The tick count starts again after a world hop
+		if (stint == null || tick < stint.lastTick || tick - stint.lastTick > STINT_GAP_TICKS)
+		{
+			stint = new Stint();
+			stints.put(key, stint);
+		}
+		else
+		{
+			stint.xp += delta;
+			stint.millis += (long) (tick - stint.lastTick) * TICK_MILLIS;
+		}
+		stint.lastTick = tick;
+
+		// Hitpoints only ever comes alongside a combat skill
+		if (skill == Skill.HITPOINTS || stint.millis < rateSampleMinutes() * 60_000L || stint.xp <= 0)
+		{
+			return;
+		}
+		if (!stint.checked)
+		{
+			stint.checked = true;
+			checkStint(skill, stint);
+		}
+		else if (stint.offer != null && stint.offer == profile.getDetectedMethods().get(key))
+		{
+			stint.offer.setXp(stint.xp);
+			stint.offer.setMillis(stint.millis);
+			if (stint.offer.getName() == null)
+			{
+				stint.offer.setName(stint.mainProduct());
+			}
+			profileDirty = true;
+		}
+	}
+
+	private void checkStint(Skill skill, Stint stint)
+	{
+		String key = skill.name();
+		double rate = stint.xpPerHour();
+		SavedMethod match = closest(profile.getSavedMethods().get(key), rate);
+		if (match != null)
+		{
+			// Estimates follow straight away; this week's targets stay as planned
+			markUsed(profile.getSavedMethods().get(key), match);
+			profileDirty = true;
+			return;
+		}
+		if (!config.offerSavedRates() || anySameRate(profile.getDismissedRates().get(key), rate))
+		{
+			return;
+		}
+
+		SavedMethod offer = new SavedMethod();
+		offer.setName(stint.mainProduct());
+		offer.setXp(stint.xp);
+		offer.setMillis(stint.millis);
+		offer.setLastUsed(System.currentTimeMillis());
+		SavedMethod waiting = profile.getDetectedMethods().put(key, offer);
+		stint.offer = offer;
+		profileDirty = true;
+		// Don't ask again about a rate that's still waiting in the panel from earlier training
+		if (waiting == null || !sameRate(waiting.xpPerHour(), rate))
+		{
+			say("Detected a new " + skill.getName() + " method at " + Format.compact((long) rate)
+				+ " XP/hr. Open the RuneJourney side panel to save it.");
+		}
+	}
+
+	/**
+	 * The saved method whose rate is nearest to this one, if it's close enough to be the same method.
+	 */
+	private static SavedMethod closest(List<SavedMethod> saved, double rate)
+	{
+		SavedMethod best = null;
+		if (saved != null)
+		{
+			for (SavedMethod m : saved)
+			{
+				if (sameRate(m.xpPerHour(), rate)
+					&& (best == null || Math.abs(m.xpPerHour() - rate) < Math.abs(best.xpPerHour() - rate)))
+				{
+					best = m;
+				}
+			}
+		}
+		return best;
+	}
+
+	/**
+	 * Makes this the skill's most recently trained method, strictly after the others.
+	 */
+	private static void markUsed(List<SavedMethod> saved, SavedMethod m)
+	{
+		long latest = saved.stream().filter(o -> o != m).mapToLong(SavedMethod::getLastUsed).max().orElse(0);
+		m.setLastUsed(Math.max(System.currentTimeMillis(), latest + 1));
+	}
+
+	private static boolean anySameRate(List<Long> rates, double rate)
+	{
+		return rates != null && rates.stream().anyMatch(r -> sameRate(r, rate));
+	}
+
+	private static boolean sameRate(double saved, double rate)
+	{
+		return saved > 0 && Math.abs(rate - saved) <= saved * SAME_METHOD_TOLERANCE;
 	}
 
 	private void xpMilestones(Skill skill, long old, long newXp)
@@ -1300,6 +1693,7 @@ public class JourneyService implements RateSource
 		{
 			boolean big = m % 10_000_000L == 0;
 			JourneyEvent e = event(EventType.XP_MILESTONE, Format.compact(m) + " " + skill.getName() + " XP", null);
+			e.setId(EventIds.fixed("xp", skill.name(), m));
 			e.setSkill(skill.name());
 			e.setValue(m);
 			e.setHighlight(big);
@@ -1318,6 +1712,7 @@ public class JourneyService implements RateSource
 			for (long k = totalBefore / totalInterval + 1; k <= totalNow / totalInterval; k++)
 			{
 				JourneyEvent e = event(EventType.XP_MILESTONE, Format.compact(k * totalInterval) + " total XP", null);
+				e.setId(EventIds.fixed("totalxp", k * totalInterval));
 				e.setValue(k * totalInterval);
 				e.setHighlight(true);
 				addEvent(e, false);
@@ -1335,6 +1730,7 @@ public class JourneyService implements RateSource
 		long todayXp = d.getSkillXp().getOrDefault(skill.name(), 0L);
 		JourneyEvent e = event(EventType.LEVEL, "Level " + level + " " + skill.getName(),
 			Format.number(totalXp) + " XP · +" + Format.number(todayXp) + " today");
+		e.setId(EventIds.fixed("level", skill.name(), level));
 		e.setSkill(skill.name());
 		e.setValue(level);
 		e.setHighlight(milestone);
@@ -1351,6 +1747,7 @@ public class JourneyService implements RateSource
 			{
 				String title = m == Skills.MAX_TOTAL_LEVEL ? "Maxed! " + Format.number(m) + " total level" : "Reached " + Format.number(m) + " total level";
 				JourneyEvent e = event(EventType.TOTAL_LEVEL, title, null);
+				e.setId(EventIds.fixed("total", m));
 				e.setHighlight(true);
 				e.setValue(m);
 				addEvent(e, config.screenshotMilestoneLevels());
@@ -1358,7 +1755,7 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	private void checkDailyRecord(long todayValue, long previousBest, String title, String detail)
+	private void checkDailyRecord(String kind, long todayValue, long previousBest, String title, String detail)
 	{
 		// Need some history before "records" mean anything
 		if (previousBest <= 0 || todayValue <= previousBest || days.size() < 7)
@@ -1374,6 +1771,7 @@ public class JourneyService implements RateSource
 			}
 		}
 		JourneyEvent e = event(EventType.RECORD, title, detail + " (previous best " + Format.compact(previousBest) + ")");
+		e.setId(EventIds.fixed("record", kind, d.getDate()));
 		e.setHighlight(true);
 		addEvent(e, false);
 		announce("New personal record: " + title.toLowerCase() + "!");
@@ -1395,7 +1793,7 @@ public class JourneyService implements RateSource
 		lastKcTick = tick;
 		learnKillTime(boss);
 		long killsToday = d.getBossKills().values().stream().mapToLong(Integer::longValue).sum();
-		checkDailyRecord(killsToday, bestDay(r -> r.getBossKills().values().stream().mapToLong(Integer::longValue).sum()),
+		checkDailyRecord("kills", killsToday, bestDay(r -> r.getBossKills().values().stream().mapToLong(Integer::longValue).sum()),
 			KILLS_RECORD_TITLE, Format.number(killsToday) + " boss kills");
 
 		if (isKcMilestone(count, config.kcMilestoneInterval()))
@@ -1501,7 +1899,7 @@ public class JourneyService implements RateSource
 		addLootSource(d, source, items, total);
 		long before = d.getLootValue();
 		d.setLootValue(before + total);
-		checkDailyRecord(d.getLootValue(), profile.getBestLootDay(), LOOT_RECORD_TITLE, Format.compact(d.getLootValue()) + " gp");
+		checkDailyRecord("loot", d.getLootValue(), profile.getBestLootDay(), LOOT_RECORD_TITLE, Format.compact(d.getLootValue()) + " gp");
 		profile.setBestLootDay(Math.max(profile.getBestLootDay(), d.getLootValue()));
 		profileDirty = true;
 		changed(false);
@@ -1571,6 +1969,11 @@ public class JourneyService implements RateSource
 		if (!gained.isEmpty())
 		{
 			itemsObtained(gained, skill.getName());
+			Stint stint = stints.get(skill.name());
+			if (stint != null)
+			{
+				gained.forEach(i -> stint.products.merge(i.getName(), i.getQuantity(), Integer::sum));
+			}
 		}
 		changed(false);
 	}
@@ -1874,6 +2277,7 @@ public class JourneyService implements RateSource
 	private JourneyEvent event(EventType type, String title, String detail)
 	{
 		JourneyEvent e = new JourneyEvent();
+		e.setId(EventIds.random());
 		e.setTime(System.currentTimeMillis());
 		e.setType(type);
 		e.setTitle(title);
@@ -1883,6 +2287,11 @@ public class JourneyService implements RateSource
 
 	private void addEvent(JourneyEvent e, boolean screenshot)
 	{
+		// Already recorded (an event with a fixed ID)
+		if (!eventIds.add(e.getId()))
+		{
+			return;
+		}
 		if (screenshot && profileKey != null)
 		{
 			e.setScreenshot(screenshots.request(profileKey, e.getTitle(), currentTick));
@@ -1903,6 +2312,12 @@ public class JourneyService implements RateSource
 		}
 		DayRecord d = days.computeIfAbsent(date.toString(), DayRecord::new);
 		dirtyDays.add(date.toString());
+		for (JourneyEvent e : events)
+		{
+			e.setId(EventIds.random());
+			e.setMemory(true);
+			eventIds.add(e.getId());
+		}
 		d.getEvents().addAll(events);
 		d.getEvents().sort(Comparator.comparingLong(JourneyEvent::getTime));
 		if (!items.isEmpty())
@@ -1913,11 +2328,12 @@ public class JourneyService implements RateSource
 		changed(true);
 	}
 
-	public synchronized void deleteEvent(String date, long time, String title)
+	public synchronized void deleteEvent(String date, String id)
 	{
 		DayRecord d = days.get(date);
-		if (d != null && d.getEvents().removeIf(e -> e.getTime() == time && title.equals(e.getTitle())))
+		if (d != null && d.getEvents().removeIf(e -> id.equals(e.getId())))
 		{
+			eventIds.remove(id);
 			dirtyDays.add(date);
 			changed(true);
 		}
@@ -1964,7 +2380,7 @@ public class JourneyService implements RateSource
 	/**
 	 * Adds, changes or (with a blank note) removes the player's note on a Journey event.
 	 */
-	public synchronized void setEventNote(String date, long time, String title, String note)
+	public synchronized void setEventNote(String date, String id, String note)
 	{
 		DayRecord d = days.get(date);
 		if (d == null)
@@ -1974,7 +2390,7 @@ public class JourneyService implements RateSource
 		String text = note == null || note.trim().isEmpty() ? null : note.trim();
 		for (JourneyEvent e : d.getEvents())
 		{
-			if (e.getTime() == time && title.equals(e.getTitle()))
+			if (id.equals(e.getId()))
 			{
 				e.setNote(text);
 				dirtyDays.add(date);
@@ -1995,7 +2411,7 @@ public class JourneyService implements RateSource
 	/**
 	 * A "[RuneJourney] ..." message in the chatbox.
 	 */
-	private void say(String message)
+	public void say(String message)
 	{
 		if (chatMessageManager == null)
 		{
@@ -2196,14 +2612,51 @@ public class JourneyService implements RateSource
 		changed(false);
 	}
 
-	private ObservedRate observedRate(Skill skill)
+	/**
+	 * The saved method estimates use for a skill: the one the player chose, or with nothing chosen
+	 * (and saved rates in use) the one they trained most recently.
+	 */
+	private SavedMethod savedMethod(Skill skill)
 	{
-		if (profile == null)
+		List<SavedMethod> saved = profile == null ? null : profile.getSavedMethods().get(skill.name());
+		if (saved == null || saved.isEmpty())
 		{
 			return null;
 		}
-		ObservedRate r = profile.getObservedRates().get(skill.name());
-		return r != null && r.getMillis() >= XpRates.MIN_OBSERVED_MILLIS && r.getXp() > 0 ? r : null;
+		String preferred = profile.getPreferredMethods().get(skill.name());
+		if (preferred != null)
+		{
+			return saved.stream().filter(m -> displayName(m).equals(preferred)).findFirst().orElse(null);
+		}
+		return config.usePersonalRates() ? Collections.max(saved, Comparator.comparingLong(SavedMethod::getLastUsed)) : null;
+	}
+
+	/**
+	 * Minutes of continuous training before a skill's rate is measured.
+	 */
+	public int rateSampleMinutes()
+	{
+		return Math.max(5, Math.min(60, config.rateSampleMinutes()));
+	}
+
+	private static String displayName(SavedMethod m)
+	{
+		return m.getName() + SAVED_SUFFIX;
+	}
+
+	private static SavedMethod findSaved(List<SavedMethod> saved, String name)
+	{
+		if (saved != null)
+		{
+			for (SavedMethod m : saved)
+			{
+				if (m.getName().equalsIgnoreCase(name))
+				{
+					return m;
+				}
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -2220,12 +2673,7 @@ public class JourneyService implements RateSource
 	@Override
 	public synchronized boolean isPersonal(Skill skill)
 	{
-		if (observedRate(skill) == null)
-		{
-			return false;
-		}
-		String preferred = profile.getPreferredMethods().get(skill.name());
-		return OWN_RATE.equals(preferred) || (preferred == null && config.usePersonalRates());
+		return savedMethod(skill) != null;
 	}
 
 	@Override
@@ -2235,9 +2683,10 @@ public class JourneyService implements RateSource
 		{
 			return 0;
 		}
-		if (isPersonal(skill))
+		SavedMethod saved = savedMethod(skill);
+		if (saved != null)
 		{
-			return (toXp - fromXp) / observedRate(skill).xpPerHour();
+			return (toXp - fromXp) / saved.xpPerHour();
 		}
 		TrainingMethod m = method(skill, fromXp);
 		return m == null ? (toXp - fromXp) / XpRates.defaultRate(skill, config.intensity()) : m.hours(fromXp, toXp);
@@ -2246,9 +2695,10 @@ public class JourneyService implements RateSource
 	@Override
 	public synchronized double rate(Skill skill, long atXp)
 	{
-		if (isPersonal(skill))
+		SavedMethod saved = savedMethod(skill);
+		if (saved != null)
 		{
-			return observedRate(skill).xpPerHour();
+			return saved.xpPerHour();
 		}
 		TrainingMethod m = method(skill, atXp);
 		return m == null ? XpRates.defaultRate(skill, config.intensity()) : m.rateAt(atXp);
@@ -2257,16 +2707,17 @@ public class JourneyService implements RateSource
 	@Override
 	public synchronized String methodName(Skill skill, long atXp)
 	{
-		if (isPersonal(skill))
+		SavedMethod saved = savedMethod(skill);
+		if (saved != null)
 		{
-			return OWN_RATE;
+			return displayName(saved);
 		}
 		TrainingMethod m = method(skill, atXp);
 		return m == null ? "Typical training" : m.getName();
 	}
 
 	/**
-	 * Method names the player can choose from for a skill, including their own observed rate when known.
+	 * Method names the player can choose from for a skill, followed by the ones they saved.
 	 */
 	public synchronized List<String> methodChoices(Skill skill)
 	{
@@ -2275,9 +2726,12 @@ public class JourneyService implements RateSource
 		{
 			names.add(m.getName());
 		}
-		if (observedRate(skill) != null)
+		if (profile != null)
 		{
-			names.add(OWN_RATE);
+			for (SavedMethod m : profile.getSavedMethods().getOrDefault(skill.name(), Collections.emptyList()))
+			{
+				names.add(displayName(m));
+			}
 		}
 		return names;
 	}
@@ -2290,11 +2744,181 @@ public class JourneyService implements RateSource
 		}
 		profile.getPreferredMethods().put(skill.name(), method);
 		profileDirty = true;
+		replanGoals();
+		changed(false);
+	}
+
+	private void replanGoals()
+	{
 		for (Goal g : profile.getGoals())
 		{
 			GoalPlanner.replan(g, this, config.hoursPerWeek(), System.currentTimeMillis());
 		}
+	}
+
+	/**
+	 * A rate from 30+ minutes of training that the player hasn't saved or dismissed yet.
+	 */
+	@Value
+	public static class MethodOffer
+	{
+		Skill skill;
+		long xpPerHour;
+		long millis;
+		/**
+		 * Name to start from, such as the item being made, or null.
+		 */
+		String suggestedName;
+		/**
+		 * The skill's saved methods; saving under one of their names replaces it.
+		 */
+		List<String> savedNames;
+	}
+
+	public synchronized List<MethodOffer> methodOffers()
+	{
+		List<MethodOffer> offers = new ArrayList<>();
+		if (profile == null)
+		{
+			return offers;
+		}
+		for (Skill s : Skills.ALL)
+		{
+			SavedMethod m = profile.getDetectedMethods().get(s.name());
+			if (m != null)
+			{
+				List<String> names = new ArrayList<>();
+				profile.getSavedMethods().getOrDefault(s.name(), Collections.emptyList()).forEach(saved -> names.add(saved.getName()));
+				offers.add(new MethodOffer(s, (long) m.xpPerHour(), m.getMillis(), m.getName(), names));
+			}
+		}
+		return offers;
+	}
+
+	/**
+	 * Saves a detected rate as a training method, replacing any saved method with the same name.
+	 *
+	 * @return null on success, or why it couldn't be saved
+	 */
+	public synchronized String saveDetectedMethod(Skill skill, String name)
+	{
+		SavedMethod offer = profile == null ? null : profile.getDetectedMethods().get(skill.name());
+		if (offer == null)
+		{
+			return "That rate has already been saved or dismissed.";
+		}
+		String clean = cleanMethodName(name);
+		if (clean == null)
+		{
+			return "Give the method a name.";
+		}
+		List<SavedMethod> saved = profile.getSavedMethods().computeIfAbsent(skill.name(), k -> new ArrayList<>());
+		SavedMethod m = findSaved(saved, clean);
+		if (m == null)
+		{
+			m = new SavedMethod();
+			m.setName(clean);
+			saved.add(m);
+		}
+		m.setXp(offer.getXp());
+		m.setMillis(offer.getMillis());
+		markUsed(saved, m);
+		profile.getDetectedMethods().remove(skill.name());
+		// Plan with it, whether the player had picked a method or plans follow the newest saved one
+		if (profile.getPreferredMethods().containsKey(skill.name()))
+		{
+			profile.getPreferredMethods().put(skill.name(), displayName(m));
+		}
+		profileDirty = true;
+		replanGoals();
 		changed(false);
+		return null;
+	}
+
+	/**
+	 * Drops a detected rate without saving it. Training at a similar rate won't be offered again.
+	 */
+	public synchronized void dismissDetectedMethod(Skill skill)
+	{
+		SavedMethod offer = profile == null ? null : profile.getDetectedMethods().remove(skill.name());
+		if (offer == null)
+		{
+			return;
+		}
+		List<Long> dismissed = profile.getDismissedRates().computeIfAbsent(skill.name(), k -> new ArrayList<>());
+		dismissed.add((long) offer.xpPerHour());
+		while (dismissed.size() > MAX_DISMISSED_RATES)
+		{
+			dismissed.remove(0);
+		}
+		profileDirty = true;
+		changed(false);
+	}
+
+	/**
+	 * @return null on success, or why it couldn't be renamed
+	 */
+	public synchronized String renameSavedMethod(Skill skill, String oldName, String newName)
+	{
+		List<SavedMethod> saved = profile == null ? null : profile.getSavedMethods().get(skill.name());
+		SavedMethod m = findSaved(saved, oldName);
+		if (m == null)
+		{
+			return "That method no longer exists.";
+		}
+		String clean = cleanMethodName(newName);
+		if (clean == null)
+		{
+			return "Give the method a name.";
+		}
+		SavedMethod other = findSaved(saved, clean);
+		if (other != null && other != m)
+		{
+			return "You already have a " + skill.getName() + " method called " + other.getName() + ".";
+		}
+		String oldDisplay = displayName(m);
+		m.setName(clean);
+		profile.getPreferredMethods().replace(skill.name(), oldDisplay, displayName(m));
+		profileDirty = true;
+		changed(false);
+		return null;
+	}
+
+	public synchronized void deleteSavedMethod(Skill skill, String name)
+	{
+		List<SavedMethod> saved = profile == null ? null : profile.getSavedMethods().get(skill.name());
+		SavedMethod m = findSaved(saved, name);
+		if (m == null)
+		{
+			return;
+		}
+		saved.remove(m);
+		if (saved.isEmpty())
+		{
+			profile.getSavedMethods().remove(skill.name());
+		}
+		profile.getPreferredMethods().remove(skill.name(), displayName(m));
+		profileDirty = true;
+		replanGoals();
+		changed(false);
+	}
+
+	/**
+	 * A tidied method name, or null if nothing is left of it.
+	 */
+	private static String cleanMethodName(String name)
+	{
+		String clean = name == null ? "" : name.trim().replaceAll("\\s+", " ");
+		// The marker is added when shown, so don't let it double up
+		if (clean.endsWith(SAVED_SUFFIX.trim()))
+		{
+			clean = clean.substring(0, clean.length() - SAVED_SUFFIX.trim().length()).trim();
+		}
+		if (clean.length() > MAX_METHOD_NAME)
+		{
+			clean = clean.substring(0, MAX_METHOD_NAME).trim();
+		}
+		return clean.isEmpty() ? null : clean;
 	}
 
 	/**
@@ -2438,14 +3062,16 @@ public class JourneyService implements RateSource
 	/**
 	 * Manually ticks an item in an item goal on or off, e.g. for items obtained before RuneJourney.
 	 */
-	public synchronized void setItemObtained(String goalId, int index, boolean obtained)
+	public synchronized void setItemObtained(String goalId, GoalItem which, boolean obtained)
 	{
 		Goal g = findGoal(goalId);
-		if (g == null || index < 0 || index >= g.getItems().size())
+		GoalItem item = g == null ? null : g.getItems().stream()
+			.filter(i -> which.getId() > 0 ? i.getId() == which.getId() : i.getName().equalsIgnoreCase(which.getName()))
+			.findFirst().orElse(null);
+		if (item == null)
 		{
 			return;
 		}
-		GoalItem item = g.getItems().get(index);
 		item.setObtainedAt(obtained ? System.currentTimeMillis() : 0);
 		item.setSource(obtained ? "Marked manually" : null);
 		profileDirty = true;
@@ -2511,6 +3137,7 @@ public class JourneyService implements RateSource
 				JourneyEvent e = event(EventType.GOAL_PROGRESS, "You can afford " + item + "!",
 					Counters.format(Counters.CASH, GoalPlanner.counter(state, Counters.CASH)) + " saved · price "
 						+ Counters.format(Counters.CASH, g.getTargetCount()));
+				e.setId(EventIds.fixed("afford", g.getId()));
 				e.setHighlight(true);
 				addEvent(e, false);
 				announce("You can afford " + item + "! Buy it on the Grand Exchange to complete your goal.");
@@ -2619,6 +3246,7 @@ public class JourneyService implements RateSource
 		long daysTaken = Math.max(1, ChronoUnit.DAYS.between(toDate(goal.getCreatedAt()), toDate(now)));
 		JourneyEvent e = event(EventType.GOAL_COMPLETED, goal.getName() + " achieved!",
 			"Your journey took " + daysTaken + (daysTaken == 1 ? " day" : " days"));
+		e.setId(EventIds.fixed("goalDone", goal.getId()));
 		e.setHighlight(true);
 		addEvent(e, config.screenshotGoals());
 		announce("Goal complete: " + goal.getName() + "! Open RuneJourney to see your journey.");
@@ -2701,14 +3329,17 @@ public class JourneyService implements RateSource
 		lastRollDate = date;
 		for (Goal g : profile.getGoals())
 		{
+			String week = g.getWeekStart();
 			long[] ended = GoalPlanner.rollWeek(g, state(), this, config.hoursPerWeek(), LocalDate.now());
 			if (ended != null)
 			{
 				profileDirty = true;
 				long diff = ended[1] - ended[0];
 				String status = diff >= 0 ? "ahead by " + Format.compact(diff) : "behind by " + Format.compact(-diff);
-				addEvent(event(EventType.WEEKLY_PLAN, "Week complete: " + g.getName(),
-					Format.compact(ended[1]) + " / " + Format.compact(ended[0]) + " XP · " + status), false);
+				JourneyEvent e = event(EventType.WEEKLY_PLAN, "Week complete: " + g.getName(),
+					Format.compact(ended[1]) + " / " + Format.compact(ended[0]) + " XP · " + status);
+				e.setId(EventIds.fixed("week", g.getId(), week));
+				addEvent(e, false);
 			}
 			else if (g.getWeekStart() != null)
 			{
@@ -2872,6 +3503,9 @@ public class JourneyService implements RateSource
 		c.setAwayFrom(d.getAwayFrom());
 		c.setCombatTasks(d.getCombatTasks());
 		c.setCombatTaskPoints(d.getCombatTaskPoints());
+		c.setXpRanges(copyRanges(d.getXpRanges()));
+		c.setOfflineRanges(copyRanges(d.getOfflineRanges()));
+		c.setAwayRanges(copyRanges(d.getAwayRanges()));
 		c.setSnapshot(new HashMap<>(d.getSnapshot()));
 		List<JourneyEvent> events = new ArrayList<>(d.getEvents().size());
 		for (JourneyEvent e : d.getEvents())
@@ -2879,6 +3513,18 @@ public class JourneyService implements RateSource
 			events.add(copy(e));
 		}
 		c.setEvents(events);
+		return c;
+	}
+
+	private static Map<String, List<long[]>> copyRanges(Map<String, List<long[]>> ranges)
+	{
+		Map<String, List<long[]>> c = new HashMap<>();
+		ranges.forEach((skill, list) ->
+		{
+			List<long[]> copied = new ArrayList<>(list.size());
+			list.forEach(r -> copied.add(r.clone()));
+			c.put(skill, copied);
+		});
 		return c;
 	}
 
@@ -3062,12 +3708,9 @@ public class JourneyService implements RateSource
 		return best == null ? null : copy(best);
 	}
 
-	private JourneyEvent copy(JourneyEvent e)
+	private static JourneyEvent copy(JourneyEvent e)
 	{
-		JourneyEvent c = new JourneyEvent(e.getTime(), e.getType(), e.getTitle(), e.getDetail(), e.getSkill(), e.getScreenshot(), e.isHighlight(), e.getValue());
-		c.setNote(e.getNote());
-		c.setAway(e.isAway());
-		return c;
+		return e.copy();
 	}
 
 	/**
@@ -3181,12 +3824,12 @@ public class JourneyService implements RateSource
 		List<Suggestion> rates = new ArrayList<>();
 		for (Skill s : Skills.ALL)
 		{
-			ObservedRate r = profile.getObservedRates().get(s.name());
-			if (r != null && r.getMillis() >= XpRates.MIN_OBSERVED_MILLIS && r.getXp() > 0)
+			SavedMethod active = savedMethod(s);
+			for (SavedMethod m : profile.getSavedMethods().getOrDefault(s.name(), Collections.emptyList()))
 			{
-				rates.add(new Suggestion(s.getName() + ": " + Format.compact((long) r.xpPerHour()) + " XP/hr",
-					"From " + Format.duration(r.getMillis()) + " of training · " + method(s, Skills.xp(xp, s)).getName() + " estimate "
-						+ Format.compact((long) method(s, Skills.xp(xp, s)).rateAt(Skills.xp(xp, s))), s, -1));
+				rates.add(new Suggestion(m.getName() + ": " + Format.compact((long) m.xpPerHour()) + " XP/hr",
+					s.getName() + " · from " + Format.duration(m.getMillis()) + " of training" + (m == active ? " · used for your plans" : ""),
+					s, -1, m.getName()));
 			}
 		}
 		profile.getKillTimes().entrySet().stream()
@@ -3384,6 +4027,666 @@ public class JourneyService implements RateSource
 	public synchronized Map<String, Long> currentXp()
 	{
 		return new HashMap<>(xp);
+	}
+
+	// ------------------------------------------------------------------
+	// Cloud sync
+	// ------------------------------------------------------------------
+
+	/**
+	 * A document this PC uploads: its own part of a day, or its copy of the profile, as JSON.
+	 */
+	@Value
+	public static class SyncDoc
+	{
+		String docKey;
+		String json;
+	}
+
+	// ------------------------------------------------------------------
+	// Public page
+	// ------------------------------------------------------------------
+
+	private static final int PUBLIC_EVENTS = 300;
+	private static final int PUBLIC_GOALS = 100;
+	private static final int PUBLIC_RECORDS = 40;
+	private static final int PUBLIC_BOSSES = 300;
+	private static final int PUBLIC_CLUE_TIERS = 10;
+	private static final int PUBLIC_MAX_COUNT = 100_000_000;
+	private static final long MAX_SKILL_XP = 200_000_000L;
+	/**
+	 * RuneScape names: up to 12 letters, numbers, spaces, hyphens and underscores.
+	 */
+	private static final java.util.regex.Pattern RSN = java.util.regex.Pattern.compile("(?=.*[A-Za-z0-9])[A-Za-z0-9 _-]{1,12}");
+	/**
+	 * Boss and clue names the website accepts.
+	 */
+	private static final java.util.regex.Pattern COUNTER_NAME = java.util.regex.Pattern.compile("[\\p{L}\\p{N} '’():&.,!+/-]{1,60}");
+
+	/**
+	 * What the account's public page shows, from everything on this PC (every PC's records
+	 * combined), with only the sections given. Notes and memories are left out unless "notes" is one.
+	 *
+	 * @param sections the website's names for the sections that are switched on
+	 * @return null if a different account is loaded, or its name isn't known yet
+	 */
+	public synchronized PublicSnapshot publicSnapshot(String key, int gen, Set<String> sections)
+	{
+		if (!isCurrent(key, gen) || profile.getPlayerName() == null)
+		{
+			return null;
+		}
+		// The game puts non-breaking spaces in some names
+		String name = profile.getPlayerName().replace(' ', ' ').trim();
+		if (!RSN.matcher(name).matches())
+		{
+			return null;
+		}
+		PublicSnapshot s = new PublicSnapshot();
+		s.setName(name);
+		s.setWorld(world(key));
+
+		if (sections.contains("skills"))
+		{
+			Map<String, Long> source = baselineSet && !xp.isEmpty() ? xp : profile.getLastXp();
+			Map<String, Long> skills = new LinkedHashMap<>();
+			for (Skill skill : Skills.ALL)
+			{
+				skills.put(skill.name(), Math.max(0, Math.min(MAX_SKILL_XP, Skills.xp(source, skill))));
+			}
+			s.setSkills(skills);
+		}
+		if (sections.contains("kills"))
+		{
+			PublicSnapshot.Kills kills = new PublicSnapshot.Kills();
+			profile.getKillCounts().entrySet().stream()
+				.filter(e -> e.getValue() != null && e.getValue() > 0 && COUNTER_NAME.matcher(e.getKey()).matches())
+				.sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+				.limit(PUBLIC_BOSSES)
+				.forEach(e -> kills.getBosses().put(e.getKey(), Math.min(PUBLIC_MAX_COUNT, e.getValue())));
+			profile.getClueCounts().entrySet().stream()
+				.filter(e -> e.getValue() != null && e.getValue() > 0 && COUNTER_NAME.matcher(e.getKey()).matches())
+				.limit(PUBLIC_CLUE_TIERS)
+				.forEach(e -> kills.getClues().put(e.getKey(), Math.min(PUBLIC_MAX_COUNT, e.getValue())));
+			s.setKills(kills);
+		}
+		if (sections.contains("collection"))
+		{
+			PublicSnapshot.Collection c = new PublicSnapshot.Collection();
+			c.setQuestPoints(Math.min(PUBLIC_MAX_COUNT, profile.getQuestPoints()));
+			c.setCollectionLog(Math.min(PUBLIC_MAX_COUNT, profile.getCollectionLogSlots()));
+			c.setCollectionLogTotal(profile.getCollectionLogTotal() > 0 ? Math.min(PUBLIC_MAX_COUNT, profile.getCollectionLogTotal()) : null);
+			c.setCombatTasks(Math.min(PUBLIC_MAX_COUNT, profile.getCombatTasks()));
+			c.setCombatPoints(Math.max(0, Math.min(PUBLIC_MAX_COUNT, profile.getCombatAchievementPoints())));
+			s.setCollection(c);
+		}
+		if (sections.contains("timeline"))
+		{
+			s.setTimeline(publicTimeline(sections.contains("notes"), sections.contains("screenshots")));
+		}
+		if (sections.contains("goals"))
+		{
+			s.setGoals(publicGoals());
+		}
+		if (sections.contains("records"))
+		{
+			List<PublicSnapshot.RecordRow> rows = new ArrayList<>();
+			for (PersonalRecord r : records())
+			{
+				if (rows.size() >= PUBLIC_RECORDS)
+				{
+					break;
+				}
+				PublicSnapshot.RecordRow row = new PublicSnapshot.RecordRow();
+				row.setTitle(clip(r.getTitle(), 60));
+				row.setValue(clip(r.getValue(), 60));
+				row.setDate(r.getDate() != null ? r.getDate().toString() : null);
+				rows.add(row);
+			}
+			s.setRecords(rows);
+		}
+		if (sections.contains("wealth") && config.trackWealth() && profile.isBankValueKnown())
+		{
+			PublicSnapshot.Wealth w = new PublicSnapshot.Wealth();
+			w.setNetWorth(Math.max(0, netWorth()));
+			w.setAsOf(LocalDate.now().toString());
+			s.setWealth(w);
+		}
+		return s;
+	}
+
+	/**
+	 * The page's address part for the game mode an account key belongs to.
+	 */
+	static String world(String key)
+	{
+		if (key.endsWith("-seasonal"))
+		{
+			return "seasonal";
+		}
+		if (key.endsWith("-deadman"))
+		{
+			return "deadman";
+		}
+		return key.endsWith("-fsw") ? "fresh-start" : "main";
+	}
+
+	/**
+	 * The newest Journey events. Memories and notes are the player's own words, and screenshots can
+	 * show other players, so they're only included when the player chose to show them. A screenshot
+	 * is given by its media ID; the caller leaves out any that aren't in the cloud.
+	 */
+	private List<PublicSnapshot.Event> publicTimeline(boolean notes, boolean screenshots)
+	{
+		List<PublicSnapshot.Event> out = new ArrayList<>();
+		for (DayRecord d : days.descendingMap().values())
+		{
+			List<JourneyEvent> events = new ArrayList<>(d.getEvents());
+			events.sort(Comparator.comparingLong(JourneyEvent::getTime).reversed());
+			for (JourneyEvent e : events)
+			{
+				if (e.getId() == null || e.getType() == null || e.getTitle() == null || (e.isMemory() && !notes))
+				{
+					continue;
+				}
+				PublicSnapshot.Event p = new PublicSnapshot.Event();
+				p.setId(clip(e.getId(), 64));
+				p.setDate(d.getDate());
+				p.setTime(Math.max(0, e.getTime()));
+				p.setType(e.getType().name());
+				p.setTitle(clip(e.getTitle(), 200));
+				p.setDetail(clip(e.getDetail(), 300));
+				p.setSkill(Skills.parse(e.getSkill()) != null ? e.getSkill() : null);
+				p.setValue(e.getValue() != 0 ? e.getValue() : null);
+				p.setHighlight(e.isHighlight() ? Boolean.TRUE : null);
+				if (notes)
+				{
+					p.setNote(clip(e.getNote(), 500));
+					p.setMemory(e.isMemory() ? Boolean.TRUE : null);
+				}
+				if (screenshots && e.getScreenshot() != null)
+				{
+					p.setScreenshot(SyncManager.mediaId(e.getScreenshot()));
+				}
+				out.add(p);
+				if (out.size() >= PUBLIC_EVENTS)
+				{
+					return out;
+				}
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * Goals in progress first, then completed ones, newest first.
+	 */
+	private List<PublicSnapshot.GoalRow> publicGoals()
+	{
+		List<GoalProgress> progress = goalProgress();
+		List<GoalProgress> ordered = new ArrayList<>();
+		progress.stream().filter(p -> !p.getGoal().isComplete()).forEach(ordered::add);
+		progress.stream().filter(p -> p.getGoal().isComplete())
+			.sorted(Comparator.comparingLong((GoalProgress p) -> p.getGoal().getCompletedAt()).reversed())
+			.forEach(ordered::add);
+
+		List<PublicSnapshot.GoalRow> rows = new ArrayList<>();
+		for (GoalProgress p : ordered)
+		{
+			if (rows.size() >= PUBLIC_GOALS)
+			{
+				break;
+			}
+			Goal g = p.getGoal();
+			if (g.getName() == null || g.getType() == null)
+			{
+				continue;
+			}
+			PublicSnapshot.GoalRow row = new PublicSnapshot.GoalRow();
+			row.setName(clip(g.getName(), 100));
+			row.setType(g.getType().name());
+			double pct = g.isComplete() ? 1 : p.getPercent();
+			row.setProgress(Double.isNaN(pct) ? 0 : Math.max(0, Math.min(1, pct)));
+			LocalDate target = g.getTargetDate() == null ? null : GoalPlanner.parseDate(g.getTargetDate());
+			row.setTargetDate(target != null ? target.toString() : null);
+			row.setCompletedAt(g.isComplete() ? toDate(g.getCompletedAt()).toString() : null);
+			rows.add(row);
+		}
+		return rows;
+	}
+
+	private static String clip(String text, int max)
+	{
+		if (text == null)
+		{
+			return null;
+		}
+		return text.length() <= max ? text : text.substring(0, max).trim();
+	}
+
+	/**
+	 * Slots in the whole collection log, as the game says.
+	 */
+	public synchronized void setCollectionLogTotal(int total)
+	{
+		if (profile != null && total > 0 && total != profile.getCollectionLogTotal())
+		{
+			profile.setCollectionLogTotal(total);
+			profileDirty = true;
+		}
+	}
+
+	/**
+	 * A detached copy of everything as it would be saved, sync parts included.
+	 */
+	synchronized JourneyStore.Loaded saved()
+	{
+		TreeMap<String, DayRecord> copy = new TreeMap<>();
+		days.forEach((date, d) -> copy.put(date, gson.fromJson(gson.toJson(d), DayRecord.class)));
+		return new JourneyStore.Loaded(gson.fromJson(gson.toJson(profile), ProfileData.class), copy);
+	}
+
+	private boolean isCurrent(String key, int gen)
+	{
+		return profile != null && key.equals(profileKey) && gen == generation;
+	}
+
+	public synchronized boolean isLinked(String key)
+	{
+		return profile != null && key.equals(profileKey) && profile.getSync() != null;
+	}
+
+	/**
+	 * Whether the profile file was lost (e.g. damaged) while the days are still synced, so this PC's
+	 * copy of the profile has to come back from the cloud.
+	 */
+	public synchronized boolean needsRestore(String key)
+	{
+		return profile != null && key.equals(profileKey) && profile.getSync() == null
+			&& days.values().stream().anyMatch(d -> d.getSync() != null);
+	}
+
+	/**
+	 * Whether the loaded account has a journey worth keeping before switching to the cloud's.
+	 */
+	public synchronized boolean hasHistory()
+	{
+		if (profile == null)
+		{
+			return false;
+		}
+		String today = LocalDate.now().toString();
+		DayRecord d = days.get(today);
+		return !profile.getGoals().isEmpty() || days.keySet().stream().anyMatch(date -> !date.equals(today))
+			|| (d != null && (d.getPlayMillis() > 15 * 60_000L || !d.getEvents().isEmpty()));
+	}
+
+	/**
+	 * Starts cloud sync for the loaded account: this PC's part of everything is what it has recorded.
+	 * Days and the profile that are already synced are left as they are.
+	 *
+	 * @param first whether this is the first PC to save the account, so its settings and goals win
+	 *              over any copies other PCs make before they've seen it
+	 */
+	public synchronized boolean link(String key, int gen, String me, Hlc hlc, boolean first)
+	{
+		if (!isCurrent(key, gen))
+		{
+			return false;
+		}
+		Hlc clock = first ? hlc : Hlc.zero();
+		for (DayRecord d : days.values())
+		{
+			if (d.getSync() == null)
+			{
+				DaySync s = new DaySync();
+				s.setOwn(DaySlices.reconcile(syncGson, d, me, Collections.emptyMap(), clock));
+				d.setSync(s);
+				dirtyDays.add(d.getDate());
+				syncDays.add(d.getDate());
+			}
+		}
+		if (profile.getSync() == null)
+		{
+			ProfileSync ps = new ProfileSync();
+			ps.setOwn(ProfileJoin.reconcile(syncGson, profile, me, Collections.emptyMap(), clock));
+			profile.setSync(ps);
+			profileDirty = true;
+			syncProfile = true;
+		}
+		return true;
+	}
+
+	/**
+	 * Uploads all of this PC's parts again, e.g. to a cloud profile made afresh after the old one was
+	 * deleted.
+	 */
+	public synchronized void exportAll(String key, int gen)
+	{
+		if (isCurrent(key, gen) && profile.getSync() != null)
+		{
+			syncDays.addAll(days.keySet());
+			syncProfile = true;
+		}
+	}
+
+	/**
+	 * Finds what changed but was never worked into this PC's part, e.g. when RuneLite closed before
+	 * the next upload.
+	 */
+	public synchronized void checkUnsynced(String key, int gen, String me)
+	{
+		if (!isCurrent(key, gen) || profile.getSync() == null)
+		{
+			return;
+		}
+		for (DayRecord d : days.values())
+		{
+			if (d.getSync() == null || !DaySlices.matches(syncGson, d, slices(d.getSync(), me)))
+			{
+				syncDays.add(d.getDate());
+			}
+		}
+		if (!ProfileJoin.matches(syncGson, profile, slices(profile.getSync(), me)))
+		{
+			syncProfile = true;
+		}
+	}
+
+	/**
+	 * This PC's own parts of whatever changed since they were last uploaded.
+	 */
+	public synchronized List<SyncDoc> exportOwn(String key, int gen, String me, Hlc hlc)
+	{
+		List<SyncDoc> docs = new ArrayList<>();
+		if (!isCurrent(key, gen) || profile.getSync() == null)
+		{
+			return docs;
+		}
+		Map<String, DaySlice> before = foldLocal(me, hlc);
+		Set<String> dates = new TreeSet<>(syncDays);
+		trimAll(me).forEach((date, devices) ->
+		{
+			if (devices.contains(me))
+			{
+				dates.add(date);
+			}
+		});
+		for (String date : dates)
+		{
+			DayRecord d = days.get(date);
+			DaySlice own = d == null || d.getSync() == null ? null : d.getSync().getOwn();
+			// A day this PC has no part in is never uploaded, unless it had one before
+			if (own != null && (!isEmpty(own) || (before.get(date) != null && !isEmpty(before.get(date)))))
+			{
+				docs.add(new SyncDoc(Envelope.dayKey(date), syncGson.toJson(Envelope.day(own))));
+			}
+		}
+		if (syncProfile && profile.getSync().getOwn() != null)
+		{
+			docs.add(new SyncDoc(Envelope.PROFILE, syncGson.toJson(Envelope.profile(profile.getSync().getOwn()))));
+		}
+		syncDays.clear();
+		syncProfile = false;
+		return docs;
+	}
+
+	/**
+	 * Adds other PCs' parts. This PC's changes are worked into its own part first, so nothing
+	 * recorded here is lost when the days are combined again.
+	 *
+	 * @param profiles other PCs' copies of the profile, by device ID
+	 * @param byDate   other PCs' parts of days, by date then device ID
+	 * @param restore  take this PC's own copy of the profile from the cloud, as the local one was lost
+	 * @return whether they were added (false if a different account is loaded now)
+	 */
+	public synchronized boolean applyRemote(String key, int gen, String me, Hlc hlc, Map<String, ProfileSlice> profiles,
+		Map<String, Map<String, DaySlice>> byDate, boolean restore)
+	{
+		if (!isCurrent(key, gen) || profile.getSync() == null)
+		{
+			return false;
+		}
+		// Changes made here are stamped before this PC's clock moves past the other PCs'
+		foldLocal(me, hlc);
+		profiles.values().forEach(p -> hlc.observe(ProfileJoin.latestClock(p)));
+		byDate.values().forEach(parts -> parts.values().forEach(p ->
+		{
+			hlc.observe(p.getSnapshotClock());
+			p.getNotes().values().forEach(n -> hlc.observe(n.getClock()));
+		}));
+
+		Set<String> changedDates = new TreeSet<>();
+		byDate.forEach((date, parts) ->
+		{
+			DayRecord d = days.computeIfAbsent(date, DayRecord::new);
+			DaySync s = d.getSync() != null ? d.getSync() : new DaySync();
+			d.setSync(s);
+			parts.forEach((device, slice) ->
+			{
+				if (slice == null || slice.getDay() == null)
+				{
+					return;
+				}
+				if (!device.equals(me))
+				{
+					s.getRemotes().put(device, slice);
+				}
+				else if (s.getOwn() == null)
+				{
+					s.setOwn(slice);
+				}
+			});
+			changedDates.add(date);
+		});
+		trimAll(me).forEach((date, devices) ->
+		{
+			changedDates.add(date);
+			if (devices.contains(me))
+			{
+				syncDays.add(date);
+			}
+		});
+		for (String date : changedDates)
+		{
+			rederive(date, me);
+			// Which PC's copy of a shared event is shown may have changed
+			if (days.get(date).getSync().getOwn() != null)
+			{
+				syncDays.add(date);
+			}
+		}
+
+		ProfileSync ps = profile.getSync();
+		if (!profiles.isEmpty())
+		{
+			profiles.forEach((device, slice) ->
+			{
+				if (slice == null || slice.getProfile() == null)
+				{
+					return;
+				}
+				if (!device.equals(me))
+				{
+					ps.getRemotes().put(device, slice);
+				}
+				else if (restore || ps.getOwn() == null)
+				{
+					ps.setOwn(slice);
+				}
+			});
+			ProfileData combined = ProfileJoin.combine(syncGson, profile, slices(ps, me));
+			combined.setSync(ps);
+			profile = combined;
+			profileDirty = true;
+			syncProfile = true;
+		}
+
+		eventIds.clear();
+		days.values().forEach(d -> d.getEvents().forEach(e -> eventIds.add(e.getId())));
+		if (baselineSet)
+		{
+			checkGoals();
+		}
+		changed(true);
+		return true;
+	}
+
+	/**
+	 * "Use the cloud journey": forgets this PC's journey for the account (which should be backed up
+	 * first) so the cloud's can replace it.
+	 */
+	public synchronized boolean replaceWithCloud(String key, int gen, String me)
+	{
+		if (!isCurrent(key, gen))
+		{
+			return false;
+		}
+		removedDays.addAll(days.keySet());
+		days.clear();
+		dirtyDays.clear();
+		syncDays.clear();
+		eventIds.clear();
+		ProfileData fresh = new ProfileData();
+		fresh.setPlayerName(profile.getPlayerName());
+		if (baselineSet)
+		{
+			fresh.setLastXp(new HashMap<>(xp));
+			fresh.setLastXpAt(System.currentTimeMillis());
+		}
+		profile = fresh;
+		link(key, gen, me, Hlc.zero(), false);
+		changed(true);
+		return true;
+	}
+
+	/**
+	 * This PC's folder was copied from another PC that still uses its device ID. What this PC
+	 * recorded under that ID becomes the other PC's, and this PC carries on under a new one.
+	 */
+	public synchronized boolean forkDevice(String key, int gen, String oldId)
+	{
+		if (!isCurrent(key, gen))
+		{
+			return false;
+		}
+		for (DayRecord d : days.values())
+		{
+			DaySync s = d.getSync();
+			if (s != null && s.getOwn() != null)
+			{
+				s.getRemotes().put(oldId, s.getOwn());
+				s.setOwn(null);
+				dirtyDays.add(d.getDate());
+			}
+		}
+		ProfileSync ps = profile.getSync();
+		if (ps != null && ps.getOwn() != null)
+		{
+			ps.getRemotes().put(oldId, ps.getOwn());
+			ps.setOwn(null);
+			profileDirty = true;
+			syncProfile = true;
+		}
+		return true;
+	}
+
+	/**
+	 * Works anything changed here into this PC's own parts.
+	 *
+	 * @return this PC's parts as they were before, for days that changed
+	 */
+	private Map<String, DaySlice> foldLocal(String me, Hlc hlc)
+	{
+		syncDays.addAll(dirtyDays);
+		syncProfile |= profileDirty;
+		Map<String, DaySlice> before = new HashMap<>();
+		for (String date : syncDays)
+		{
+			DayRecord d = days.get(date);
+			if (d == null)
+			{
+				continue;
+			}
+			DaySync s = d.getSync() != null ? d.getSync() : new DaySync();
+			DaySlice next = DaySlices.reconcile(syncGson, d, me, slices(s, me), hlc);
+			if (s.getOwn() == null || !syncGson.toJsonTree(next).equals(syncGson.toJsonTree(s.getOwn())))
+			{
+				before.put(date, s.getOwn());
+				s.setOwn(next);
+				d.setSync(s);
+				dirtyDays.add(date);
+			}
+		}
+		ProfileSync ps = profile.getSync();
+		if (syncProfile && ps != null)
+		{
+			ProfileSlice next = ProfileJoin.reconcile(syncGson, profile, me, slices(ps, me), hlc);
+			if (ps.getOwn() == null || !syncGson.toJsonTree(next).equals(syncGson.toJsonTree(ps.getOwn())))
+			{
+				ps.setOwn(next);
+				profileDirty = true;
+			}
+		}
+		return before;
+	}
+
+	/**
+	 * Trims XP counted twice across every synced day, then recombines the days that changed.
+	 *
+	 * @return the dates that changed, with the devices whose parts changed
+	 */
+	private Map<String, Set<String>> trimAll(String me)
+	{
+		Map<String, Map<String, DaySlice>> all = new HashMap<>();
+		for (DayRecord d : days.values())
+		{
+			if (d.getSync() != null)
+			{
+				all.put(d.getDate(), slices(d.getSync(), me));
+			}
+		}
+		Map<String, Set<String>> changed = DaySlices.trim(all);
+		changed.keySet().forEach(date -> rederive(date, me));
+		return changed;
+	}
+
+	private void rederive(String date, String me)
+	{
+		DayRecord d = days.get(date);
+		DaySync s = d.getSync();
+		DayRecord combined = DaySlices.combine(syncGson, date, slices(s, me));
+		combined.setSync(s);
+		days.put(date, combined);
+		dirtyDays.add(date);
+	}
+
+	private static Map<String, DaySlice> slices(DaySync s, String me)
+	{
+		Map<String, DaySlice> all = new HashMap<>(s.getRemotes());
+		all.remove(me);
+		if (s.getOwn() != null)
+		{
+			all.put(me, s.getOwn());
+		}
+		return all;
+	}
+
+	private static Map<String, ProfileSlice> slices(ProfileSync s, String me)
+	{
+		Map<String, ProfileSlice> all = new HashMap<>(s.getRemotes());
+		all.remove(me);
+		if (s.getOwn() != null)
+		{
+			all.put(me, s.getOwn());
+		}
+		return all;
+	}
+
+	private boolean isEmpty(DaySlice slice)
+	{
+		return slice.getDay() == null || (slice.getNotes().isEmpty() && slice.getDeleted().isEmpty()
+			&& slice.getScreenshotsDeleted().isEmpty() && DaySlices.matches(syncGson, slice.getDay(), Collections.emptyMap()));
 	}
 
 	// ------------------------------------------------------------------

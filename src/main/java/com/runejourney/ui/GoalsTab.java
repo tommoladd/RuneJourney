@@ -694,7 +694,6 @@ class GoalsTab extends RefreshableTab
 		for (int i = 0; i < g.getItems().size(); i++)
 		{
 			GoalItem item = g.getItems().get(i);
-			int index = i;
 			JCheckBox box = new JCheckBox();
 			box.setSelected(item.isObtained());
 			box.setOpaque(false);
@@ -702,7 +701,7 @@ class GoalsTab extends RefreshableTab
 			box.setToolTipText(item.isObtained() ? "Mark as not obtained" : "Mark as obtained");
 			box.addActionListener(e ->
 			{
-				service.setItemObtained(g.getId(), index, box.isSelected());
+				service.setItemObtained(g.getId(), item, box.isSelected());
 				refresh(true);
 			});
 
@@ -997,7 +996,7 @@ class GoalsTab extends RefreshableTab
 		}
 		card.add(spacer());
 		card.add(Ui.muted("Choose how you like to train each skill. Estimates follow each method's rates at your level. "
-			+ "\"" + JourneyService.OWN_RATE + "\" becomes available after 30 minutes of training."));
+			+ "After " + service.rateSampleMinutes() + " minutes of training, RuneJourney offers to save your own rate as a method."));
 		return card;
 	}
 

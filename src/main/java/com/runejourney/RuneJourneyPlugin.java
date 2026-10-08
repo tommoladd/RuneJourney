@@ -1,6 +1,9 @@
 package com.runejourney;
 
 import com.google.inject.Provides;
+import com.runejourney.cloud.CharacterModel;
+import com.runejourney.cloud.CloudFiles;
+import com.runejourney.cloud.SyncManager;
 import com.runejourney.planner.Counters;
 import com.runejourney.planner.Skills;
 import com.runejourney.service.ChatParser;
@@ -24,6 +27,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.Getter;
@@ -35,6 +40,9 @@ import net.runelite.api.GrandExchangeOffer;
 import net.runelite.api.GrandExchangeOfferState;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
+import net.runelite.api.Model;
+import net.runelite.api.Player;
+import net.runelite.api.PlayerComposition;
 import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
 import net.runelite.api.WorldType;
@@ -47,6 +55,7 @@ import net.runelite.api.events.GrandExchangeOfferChanged;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPostFired;
+import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.events.WidgetClosed;
@@ -92,6 +101,10 @@ public class RuneJourneyPlugin extends Plugin
 	 * Refresh purchase goal prices roughly every 5 minutes.
 	 */
 	private static final int PRICE_REFRESH_TICKS = 500;
+	/**
+	 * Look for a new outfit to show on the public page every ~3 seconds.
+	 */
+	private static final int CHARACTER_INTERVAL_TICKS = 5;
 	private static final EnumSet<WorldType> UNTRACKED_WORLDS = EnumSet.of(
 		WorldType.BETA_WORLD, WorldType.NOSAVE_MODE, WorldType.TOURNAMENT_WORLD, WorldType.QUEST_SPEEDRUNNING,
 		WorldType.LAST_MAN_STANDING, WorldType.PVP_ARENA);
@@ -141,26 +154,48 @@ public class RuneJourneyPlugin extends Plugin
 	@Inject
 	private RuneJourneyConfig config;
 
+	@Inject
+	private SyncManager sync;
+
+	@Inject
+	private CollectionLogSync collectionLogSync;
+
+	@Inject
+	private AchievementsReader achievementsReader;
+
 	private final Map<Skill, Integer> lastStatXp = new EnumMap<>(Skill.class);
 	/**
 	 * Grand Exchange updates that arrive during login, before the profile is ready.
 	 */
 	private final List<GrandExchangeOfferChanged> pendingOffers = new ArrayList<>();
+	/**
+	 * Skill XP when the player logged in, kept while cloud sync fetches other PCs' records so XP
+	 * gained meanwhile isn't mistaken for XP gained while away.
+	 */
+	private Map<String, Long> heldXp;
 
 	@Getter
-	private ExecutorService executor;
+	private ScheduledExecutorService executor;
 
 	private RuneJourneyPanel panel;
 	private NavigationButton navButton;
 
 	private volatile String loadingKey;
+	/**
+	 * Counts logins, so a logout's late cleanup can't undo a later login.
+	 */
+	private volatile int session;
+	/**
+	 * The account whose lock this window holds for playing it. Only used on the executor.
+	 */
+	private String sessionLock;
 	private int lastUiVersion = -1;
 	private int lastUiTick;
 
 	@Override
 	protected void startUp() throws Exception
 	{
-		executor = Executors.newSingleThreadExecutor(r ->
+		executor = Executors.newSingleThreadScheduledExecutor(r ->
 		{
 			Thread t = new Thread(r, "RuneJourney");
 			t.setDaemon(true);
@@ -168,7 +203,10 @@ public class RuneJourneyPlugin extends Plugin
 		});
 		store.setRoot(getPluginDirectory());
 		screenshots.setExecutor(executor);
+		screenshots.setListener(sync::onScreenshot);
 		wrappedPlayer.setExecutor(executor, service::getProfileKey);
+		sync.setSaver(this::save);
+		sync.start(executor);
 
 		panel = injector.getInstance(RuneJourneyPanel.class);
 		navButton = NavigationButton.builder()
@@ -200,13 +238,18 @@ public class RuneJourneyPlugin extends Plugin
 		wealthTracker.reset();
 		lastStatXp.clear();
 		pendingOffers.clear();
+		heldXp = null;
+		sync.stop();
+		sync.setSaver(null);
+		screenshots.setListener(null);
 		// Finish the play session first so its records are included in the final save
 		service.resetSessionState();
-		Runnable writes = service.collectWrites();
-		if (writes != null)
+		save();
+		executor.submit(() ->
 		{
-			executor.submit(writes);
-		}
+			sessionLock = null;
+			store.unlockAll();
+		});
 		// Let the final save finish without blocking the shutdown thread
 		executor.shutdown();
 		screenshots.clear();
@@ -222,11 +265,13 @@ public class RuneJourneyPlugin extends Plugin
 	public void onClientShutdown(ClientShutdown event)
 	{
 		service.resetSessionState();
-		Runnable writes = service.collectWrites();
-		if (writes != null && executor != null && !executor.isShutdown())
+		Future<?> saved = save();
+		if (saved != null)
 		{
-			event.waitFor(executor.submit(writes));
+			event.waitFor(saved);
 		}
+		// A last upload, if it's quick
+		event.waitFor(sync.onExit());
 	}
 
 	@Provides
@@ -247,8 +292,11 @@ public class RuneJourneyPlugin extends Plugin
 			incomeTracker.reset();
 			supplyTracker.reset();
 			wealthTracker.reset();
+			collectionLogSync.reset();
+			achievementsReader.refresh();
 			lastStatXp.clear();
 			pendingOffers.clear();
+			heldXp = null;
 			// The in-game view can't show on the login screen
 			if (wrappedPlayer.isPlayingInGame())
 			{
@@ -258,6 +306,28 @@ public class RuneJourneyPlugin extends Plugin
 			save();
 			screenshots.clear();
 			refreshPanel(true);
+
+			// Upload what's left, then let another RuneLite window have the account
+			String key = service.getProfileKey();
+			if (key != null)
+			{
+				int loggedOut = session;
+				sync.onLogout(key).whenComplete((v, e) ->
+				{
+					ExecutorService exec = executor;
+					if (exec != null && !exec.isShutdown())
+					{
+						exec.submit(() ->
+						{
+							// Unless the player logged back in meanwhile (logging into another account releases it anyway)
+							if (session == loggedOut)
+							{
+								releaseSessionLock();
+							}
+						});
+					}
+				});
+			}
 		}
 	}
 
@@ -303,12 +373,26 @@ public class RuneJourneyPlugin extends Plugin
 				save();
 				service.unload();
 				overlay.setData(null);
+				// After the save, which still needs it
+				executor.submit(this::releaseSessionLock);
 			}
 			pendingOffers.clear();
 			return;
 		}
-		if (key.equals(service.getProfileKey()) || key.equals(loadingKey))
+		if (key.equals(loadingKey))
 		{
+			return;
+		}
+		if (key.equals(service.getProfileKey()))
+		{
+			// The profile stays loaded at the login screen. Logging back in (not just loading a new
+			// area, which also reports LOGGED_IN) checks whether another window played it meanwhile.
+			if (!service.isBaselineSet())
+			{
+				session++;
+				reloadIfChanged(key);
+				sync.onLogin(key);
+			}
 			return;
 		}
 
@@ -317,11 +401,13 @@ public class RuneJourneyPlugin extends Plugin
 		service.unload();
 		overlay.setData(null);
 		loadingKey = key;
+		session++;
 		service.beginLoad(key);
 		executor.submit(() ->
 		{
 			try
 			{
+				lock(key);
 				JourneyStore.Loaded loaded = store.load(key);
 				// Only installs if no other account or shutdown has happened since the load started
 				if (service.installIfCurrent(key, loaded))
@@ -336,22 +422,132 @@ public class RuneJourneyPlugin extends Plugin
 				loadingKey = null;
 			}
 		});
+		// Runs after the load: fetches other PCs' changes before XP is counted
+		sync.onLogin(key);
 	}
 
-	private void save()
+	/**
+	 * Takes the account's lock while it's played here, so another RuneLite window that has it open
+	 * (e.g. logged out, at the login screen) doesn't save over it. Runs on the executor.
+	 */
+	private void lock(String key)
 	{
-		Runnable writes = service.collectWrites();
-		if (writes != null && executor != null && !executor.isShutdown())
+		if (key.equals(sessionLock))
 		{
-			executor.submit(writes);
+			return;
 		}
+		releaseSessionLock();
+		if (store.tryLock(key, CloudFiles.SESSION))
+		{
+			sessionLock = key;
+		}
+		else
+		{
+			log.info("RuneJourney: this account is open in another RuneLite window, so this window won't save it");
+		}
+	}
+
+	/**
+	 * Runs on the executor.
+	 */
+	private void releaseSessionLock()
+	{
+		if (sessionLock != null)
+		{
+			store.unlock(sessionLock, CloudFiles.SESSION);
+			sessionLock = null;
+		}
+	}
+
+	/**
+	 * Reloads the profile if its files were changed by something other than this window, such as
+	 * another RuneLite window playing the same account. Otherwise the copy in memory, which is now
+	 * out of date, would be saved over them. Tracking waits until the check is done.
+	 */
+	private void reloadIfChanged(String key)
+	{
+		loadingKey = key;
+		service.beginLoad(key);
+		executor.submit(() ->
+		{
+			try
+			{
+				lock(key);
+				if (store.changedOnDisk(key) && service.installIfCurrent(key, store.load(key)))
+				{
+					log.debug("Reloaded RuneJourney profile changed by another window");
+					refreshPanel(true);
+				}
+			}
+			catch (IOException e)
+			{
+				log.warn("Unable to check RuneJourney profile for changes", e);
+			}
+			finally
+			{
+				service.cancelLoad(key);
+				if (key.equals(loadingKey))
+				{
+					loadingKey = null;
+				}
+			}
+		});
+	}
+
+	/**
+	 * Writes unsaved changes, off the client thread. While the account is played here this window
+	 * holds its lock; otherwise it only saves if no other window has the account or changed it.
+	 *
+	 * @return the write, or null if there was nothing to save
+	 */
+	private Future<?> save()
+	{
+		String key = service.getProfileKey();
+		Runnable writes = service.collectWrites();
+		ExecutorService exec = executor;
+		if (writes == null || key == null || exec == null || exec.isShutdown())
+		{
+			return null;
+		}
+		return exec.submit(() ->
+		{
+			if (store.isLocked(key))
+			{
+				writes.run();
+				return;
+			}
+			if (!store.tryLock(key, CloudFiles.SAVE))
+			{
+				log.debug("Not saving RuneJourney: the account is open in another RuneLite window");
+				return;
+			}
+			try
+			{
+				if (store.changedOnDisk(key))
+				{
+					log.debug("Not saving RuneJourney: another RuneLite window changed the account; it's reloaded on login");
+				}
+				else
+				{
+					writes.run();
+				}
+			}
+			catch (IOException e)
+			{
+				log.warn("Unable to check RuneJourney files before saving", e);
+			}
+			finally
+			{
+				store.unlock(key, CloudFiles.SAVE);
+			}
+		});
 	}
 
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
 		int tick = client.getTickCount();
-		if (!service.isReady())
+		if (!service.isReady() || loadingKey != null)
 		{
 			return;
 		}
@@ -374,7 +570,26 @@ public class RuneJourneyPlugin extends Plugin
 			{
 				return;
 			}
-			service.setBaseline(xp, tick);
+			if (sync.isHolding(service.getProfileKey()))
+			{
+				// Other PCs' records first, so XP they recorded isn't counted again as gained while away
+				if (heldXp == null)
+				{
+					heldXp = xp;
+				}
+				return;
+			}
+			Map<String, Long> baseline = heldXp != null ? heldXp : xp;
+			heldXp = null;
+			service.setBaseline(baseline, tick);
+			// XP gained while waiting
+			for (Skill s : Skills.ALL)
+			{
+				if (xp.get(s.name()) > baseline.getOrDefault(s.name(), 0L))
+				{
+					service.onXp(s, xp.get(s.name()), tick);
+				}
+			}
 			readCounters();
 			refreshPurchasePrices();
 			for (GrandExchangeOfferChanged offer : pendingOffers)
@@ -385,6 +600,8 @@ public class RuneJourneyPlugin extends Plugin
 		}
 
 		incomeTracker.onTick(tick);
+		collectionLogSync.onGameTick();
+		achievementsReader.onGameTick();
 		if (client.getGameState() == GameState.LOGGED_IN)
 		{
 			wealthTracker.onTick();
@@ -400,11 +617,52 @@ public class RuneJourneyPlugin extends Plugin
 		{
 			refreshPurchasePrices();
 		}
+		if (tick % CHARACTER_INTERVAL_TICKS == 0)
+		{
+			captureCharacter();
+		}
 		if (tick - lastUiTick >= UI_INTERVAL_TICKS)
 		{
 			lastUiTick = tick;
 			refreshPanel(false);
 			overlay.setData(config.showOverlay() ? service.overlayData() : null);
+		}
+	}
+
+	/**
+	 * Copies the player's character for their public page, when it shows it and they're wearing
+	 * something new. Only while they stand still, so it's caught in its idle pose.
+	 */
+	private void captureCharacter()
+	{
+		String key = service.getProfileKey();
+		Player me = client.getLocalPlayer();
+		if (key == null || me == null || client.getGameState() != GameState.LOGGED_IN)
+		{
+			return;
+		}
+		PlayerComposition composition = me.getPlayerComposition();
+		if (composition == null || composition.getTransformedNpcId() != -1)
+		{
+			return;
+		}
+		String look = CharacterModel.look(composition);
+		if (!sync.wantsCharacter(key, look)
+			|| me.getAnimation() != -1
+			|| me.getPoseAnimation() != me.getIdlePoseAnimation()
+			|| me.getSpotAnims().iterator().hasNext())
+		{
+			return;
+		}
+		Model model = me.getModel();
+		if (model == null || model.getOverrideAmount() != 0)
+		{
+			return;
+		}
+		CharacterModel captured = CharacterModel.capture(model, client.getTextureProvider());
+		if (captured != null)
+		{
+			sync.setCharacter(key, look, captured);
 		}
 	}
 
@@ -442,7 +700,7 @@ public class RuneJourneyPlugin extends Plugin
 	/**
 	 * Variables whose bits flag each completed combat task.
 	 */
-	private static final int[] CA_TASK_VARPS = {
+	static final int[] CA_TASK_VARPS = {
 		VarPlayerID.CA_TASK_COMPLETED_0, VarPlayerID.CA_TASK_COMPLETED_1, VarPlayerID.CA_TASK_COMPLETED_2,
 		VarPlayerID.CA_TASK_COMPLETED_3, VarPlayerID.CA_TASK_COMPLETED_4, VarPlayerID.CA_TASK_COMPLETED_5,
 		VarPlayerID.CA_TASK_COMPLETED_6, VarPlayerID.CA_TASK_COMPLETED_7, VarPlayerID.CA_TASK_COMPLETED_8,
@@ -479,6 +737,7 @@ public class RuneJourneyPlugin extends Plugin
 		service.onCounter(Counters.CA_TASKS, completedCombatTasks());
 		service.onCounter(Counters.QUEST_POINTS, client.getVarpValue(VarPlayerID.QP));
 		service.onCounter(Counters.COLLECTION_LOG, client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
+		service.setCollectionLogTotal(client.getVarpValue(VarPlayerID.COLLECTION_COUNT_MAX));
 		CLUE_VARBITS.forEach((varbit, tier) -> service.onCounter(Counters.clues(tier), client.getVarbitValue(varbit)));
 		// Price the bank and anything else held since last time, even if it hasn't been opened yet
 		wealthTracker.invalidate();
@@ -494,14 +753,20 @@ public class RuneJourneyPlugin extends Plugin
 		if (event.getVarpId() == VarPlayerID.QP)
 		{
 			service.onCounter(Counters.QUEST_POINTS, event.getValue());
+			achievementsReader.refresh();
 		}
 		else if (event.getVarpId() == VarPlayerID.COLLECTION_COUNT)
 		{
 			service.onCounter(Counters.COLLECTION_LOG, event.getValue());
 		}
+		else if (event.getVarpId() == VarPlayerID.COLLECTION_COUNT_MAX)
+		{
+			service.setCollectionLogTotal(event.getValue());
+		}
 		else if (event.getVarbitId() == -1 && isCaTaskVarp(event.getVarpId()))
 		{
 			service.onCounter(Counters.CA_TASKS, completedCombatTasks());
+			achievementsReader.refresh();
 		}
 		else if (event.getVarbitId() != -1 && CLUE_VARBITS.containsKey(event.getVarbitId()))
 		{
@@ -570,6 +835,13 @@ public class RuneJourneyPlugin extends Plugin
 		{
 			readCollectionLogPage();
 		}
+		collectionLogSync.onScriptPostFired(event);
+	}
+
+	@Subscribe
+	public void onScriptPreFired(ScriptPreFired event)
+	{
+		collectionLogSync.onScriptPreFired(event);
 	}
 
 	/**
@@ -772,6 +1044,10 @@ public class RuneJourneyPlugin extends Plugin
 	{
 		if (RuneJourneyConfig.GROUP.equals(event.getGroup()))
 		{
+			if (event.getKey().startsWith("cloud"))
+			{
+				sync.onConfigChanged();
+			}
 			refreshPanel(true);
 		}
 	}

@@ -3,11 +3,13 @@ package com.runejourney.ui;
 import com.runejourney.service.JourneyService;
 import com.runejourney.service.Suggestion;
 import java.awt.BorderLayout;
+import java.awt.FlowLayout;
 import java.util.List;
 import java.util.Map;
 import javax.inject.Inject;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -88,7 +90,7 @@ class DiscoverTab extends RefreshableTab
 		rebuild();
 	}
 
-	private static String emptyText(String section)
+	private String emptyText(String section)
 	{
 		if (section.startsWith("Bossing"))
 		{
@@ -101,7 +103,8 @@ class DiscoverTab extends RefreshableTab
 		}
 		if (section.startsWith("Your rates"))
 		{
-			return "Train a skill for 30 minutes or more and RuneJourney will start using your real XP rates.";
+			return "Train a skill for " + service.rateSampleMinutes() + " minutes and RuneJourney will offer to save your XP rate as a training method "
+				+ "for planning your goals.";
 		}
 		return "Nothing close right now. Keep going!";
 	}
@@ -120,6 +123,42 @@ class DiscoverTab extends RefreshableTab
 		{
 			card.add(Ui.progress(s.getProgress(), Ui.GOLD));
 		}
+		if (s.getSavedMethod() != null && s.getSkill() != null)
+		{
+			JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+			actions.setOpaque(false);
+			actions.add(Ui.link("Rename", () -> rename(s)));
+			actions.add(Ui.small("  ·  ", Ui.MUTED));
+			actions.add(Ui.link("Delete", () -> delete(s)));
+			card.add(actions);
+		}
 		return card;
+	}
+
+	private void rename(Suggestion s)
+	{
+		Object name = JOptionPane.showInputDialog(this, "Rename this " + s.getSkill().getName() + " method:",
+			"RuneJourney", JOptionPane.PLAIN_MESSAGE, null, null, s.getSavedMethod());
+		if (name == null)
+		{
+			return;
+		}
+		String error = service.renameSavedMethod(s.getSkill(), s.getSavedMethod(), name.toString());
+		if (error != null)
+		{
+			JOptionPane.showMessageDialog(this, error, "RuneJourney", JOptionPane.WARNING_MESSAGE);
+		}
+		refresh(true);
+	}
+
+	private void delete(Suggestion s)
+	{
+		int ok = JOptionPane.showConfirmDialog(this, "Delete your " + s.getSkill().getName() + " method \"" + s.getSavedMethod() + "\"?",
+			"RuneJourney", JOptionPane.OK_CANCEL_OPTION);
+		if (ok == JOptionPane.OK_OPTION)
+		{
+			service.deleteSavedMethod(s.getSkill(), s.getSavedMethod());
+			refresh(true);
+		}
 	}
 }

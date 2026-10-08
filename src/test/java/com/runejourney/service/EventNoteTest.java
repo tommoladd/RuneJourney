@@ -49,15 +49,16 @@ public class EventNoteTest
 	@Test
 	public void notesAreAddedEditedAndRemoved()
 	{
-		service.setEventNote(TODAY, TIME, "Oh dear, you are dead!", "  Forgot to pray at Zuk  ");
+		String death = shown("Oh dear, you are dead!").getId();
+		service.setEventNote(TODAY, death, "  Forgot to pray at Zuk  ");
 		assertEquals("Forgot to pray at Zuk", shown("Oh dear, you are dead!").getNote());
 		// Only the matching event gets it, even at the same time
 		assertNull(shown("Guardian's eye").getNote());
 
-		service.setEventNote(TODAY, TIME, "Oh dear, you are dead!", "Forgot to pray at Zuk.\nNext time!");
+		service.setEventNote(TODAY, death, "Forgot to pray at Zuk.\nNext time!");
 		assertEquals("Forgot to pray at Zuk.\nNext time!", shown("Oh dear, you are dead!").getNote());
 
-		service.setEventNote(TODAY, TIME, "Oh dear, you are dead!", "   ");
+		service.setEventNote(TODAY, death, "   ");
 		assertNull(shown("Oh dear, you are dead!").getNote());
 	}
 
