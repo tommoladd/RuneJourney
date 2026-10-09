@@ -1,22 +1,12 @@
 package com.runejourney.report;
 
 import com.runejourney.model.DayRecord;
-import java.time.DayOfWeek;
-import java.time.LocalDate;
+import java.time.*;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import lombok.Value;
 
-/**
- * Turns daily records into chartable series and summary statistics. Pure, so it can be tested and
- * used for both the reports window and exported reports.
- */
 public final class Analytics
 {
 	private Analytics()
@@ -50,14 +40,8 @@ public final class Analytics
 		int activeDays;
 		double perActiveDay;
 		Bucket best;
-		/**
-		 * Total for the previous period of the same length, or NaN when there's no data for it.
-		 */
 		double previousTotal;
 
-		/**
-		 * Fractional change from the previous period, or NaN.
-		 */
 		public double change()
 		{
 			if (Double.isNaN(previousTotal) || previousTotal == 0)
@@ -68,9 +52,6 @@ public final class Analytics
 		}
 	}
 
-	/**
-	 * The period of the same length immediately before {@code from}.
-	 */
 	public static LocalDate[] previousPeriod(LocalDate from, LocalDate to)
 	{
 		long days = ChronoUnit.DAYS.between(from, to) + 1;
@@ -127,14 +108,10 @@ public final class Analytics
 		return buckets;
 	}
 
-	/**
-	 * Each bucket shows the last balance recorded by its end, carried forward over days with no data.
-	 */
 	private static List<Bucket> balanceSeries(Map<LocalDate, DayRecord> map, LocalDate from, LocalDate to, Metric metric,
 		Granularity g)
 	{
 		double last = Double.NaN;
-		// Start from the latest balance before the range, if any
 		LocalDate earliest = map.keySet().stream().min(LocalDate::compareTo).orElse(from);
 		for (LocalDate d = earliest; d.isBefore(from); d = d.plusDays(1))
 		{
@@ -178,9 +155,6 @@ public final class Analytics
 		return buckets;
 	}
 
-	/**
-	 * Running total of a series (per-hour metrics are left as they are).
-	 */
 	public static List<Bucket> cumulative(List<Bucket> series, Metric metric)
 	{
 		if (metric.isPerHour() || metric.isBalance())
@@ -243,10 +217,6 @@ public final class Analytics
 		return new Stats(total, active, perDay, best, previous);
 	}
 
-	/**
-	 * For balances: "total" is the latest value, "per active day" is the change over the period, and
-	 * the comparison is against where the previous period ended.
-	 */
 	private static Stats balanceStats(List<DayRecord> days, LocalDate from, LocalDate to, Metric metric,
 		Granularity granularity, List<DayRecord> previousDays)
 	{
@@ -279,9 +249,6 @@ public final class Analytics
 		return new Stats(end, active, end - start, best, previous);
 	}
 
-	/**
-	 * Totals split by skill, boss or clue tier, largest first.
-	 */
 	public static List<Entry> breakdown(List<DayRecord> days, LocalDate from, LocalDate to, Metric metric)
 	{
 		Map<String, Double> totals = new LinkedHashMap<>();
@@ -306,9 +273,6 @@ public final class Analytics
 		return entries;
 	}
 
-	/**
-	 * Average per day of the week, Monday first (per-hour metrics use the rate for that weekday).
-	 */
 	public static List<Entry> byWeekday(List<DayRecord> days, LocalDate from, LocalDate to, Metric metric, String filter)
 	{
 		double[] num = new double[7];
@@ -340,9 +304,6 @@ public final class Analytics
 		return entries;
 	}
 
-	/**
-	 * Aligns the previous period's series to the current one bucket by bucket, for overlays.
-	 */
 	public static List<Bucket> previousSeries(List<DayRecord> previousDays, LocalDate from, LocalDate to, Metric metric,
 		String filter, Granularity granularity)
 	{

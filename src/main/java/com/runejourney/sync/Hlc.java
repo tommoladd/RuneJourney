@@ -2,11 +2,6 @@ package com.runejourney.sync;
 
 import java.util.function.LongSupplier;
 
-/**
- * A logical clock for ordering edits made on different PCs. It follows the computer's clock, but
- * never goes backwards and always moves past every clock it has seen from another PC, so an edit
- * made after seeing another one is always newer even if the computers' clocks disagree.
- */
 public final class Hlc
 {
 	private final LongSupplier wallClock;
@@ -30,9 +25,6 @@ public final class Hlc
 		this.frozen = frozen;
 	}
 
-	/**
-	 * A clock that always reads 0, for copies that should lose to any real edit.
-	 */
 	public static Hlc zero()
 	{
 		return new Hlc(0, () -> 0, true);

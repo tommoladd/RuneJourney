@@ -3,22 +3,11 @@ package com.runejourney.service;
 import com.runejourney.RuneJourneyConfig;
 import com.runejourney.planner.Skills;
 import com.runejourney.util.Format;
-import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import net.runelite.api.Experience;
-import net.runelite.api.Skill;
+import java.util.*;
+import net.runelite.api.*;
 
-/**
- * Friendly chat messages for steady progress in a skill, varied so they don't repeat.
- */
 final class Encouragement
 {
-	/**
-	 * {amount} is the XP gap, {skill} the skill's name.
-	 */
 	private static final String[] GENERAL = {
 		"That's another {amount} {skill} XP down. Keep it up!",
 		"Another {amount} {skill} XP in the bag.",
@@ -74,9 +63,6 @@ final class Encouragement
 		this.random = random;
 	}
 
-	/**
-	 * The XP gap set for a skill, or 0 for never.
-	 */
 	static long interval(RuneJourneyConfig config, Skill skill)
 	{
 		if (skill == null)
@@ -138,20 +124,11 @@ final class Encouragement
 		}
 	}
 
-	/**
-	 * Whether gaining XP from {@code oldXp} to {@code newXp} passed another gap.
-	 */
 	static boolean crossed(long interval, long oldXp, long newXp)
 	{
 		return interval > 0 && newXp / interval > oldXp / interval;
 	}
 
-	/**
-	 * A message for passing another {@code interval} XP, never the same line twice in a row.
-	 */
-	/**
-	 * The line used for the last message, before the follow-up.
-	 */
 	String lastLine()
 	{
 		return last;
@@ -167,7 +144,6 @@ final class Encouragement
 		String[] own = SKILL_LINES.get(skill);
 		if (own != null)
 		{
-			// Skill-specific lines turn up a bit more often than any single general one
 			for (String line : own)
 			{
 				lines.add(line);
@@ -184,9 +160,6 @@ final class Encouragement
 		return followUp == null ? text : text + " " + followUp;
 	}
 
-	/**
-	 * Sometimes adds how far there is to go, so the message is useful as well as kind.
-	 */
 	private String followUp(long xp)
 	{
 		if (random.nextInt(3) != 0)

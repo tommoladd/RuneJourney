@@ -1,13 +1,8 @@
 package com.runejourney.service;
 
-import java.util.ArrayList;
-import java.util.List;
-import lombok.Data;
-import lombok.Value;
+import java.util.*;
+import lombok.*;
 
-/**
- * Pre-formatted content for the in-game overlay. Built on the game tick, drawn every frame.
- */
 @Data
 public class OverlayData
 {
@@ -20,9 +15,6 @@ public class OverlayData
 	}
 
 	private String goalName;
-	/**
-	 * 0-1, or negative for goals without a progress bar.
-	 */
 	private double goalPercent = -1;
 	private String goalDetail;
 	private List<Row> week = new ArrayList<>();

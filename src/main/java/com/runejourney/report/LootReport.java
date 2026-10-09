@@ -1,88 +1,45 @@
 package com.runejourney.report;
 
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.ItemTotal;
-import com.runejourney.model.LootSource;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import com.runejourney.model.*;
+import java.util.*;
 import java.util.function.ToDoubleFunction;
 import lombok.Value;
 
-/**
- * Which bosses and activities earned the most loot over a period. Loot only: supplies aren't
- * recorded per activity, so this is before supplies.
- */
 public final class LootReport
 {
 	@Value
 	public static class Row
 	{
 		String source;
-		/**
-		 * Kills, reward claims, caskets opened...
-		 */
 		int times;
 		long total;
 		double perTime;
-		/**
-		 * Fraction of all loot in the period.
-		 */
 		double share;
-		/**
-		 * GP per hour from the player's own kill times, or NaN when there aren't enough timed kills.
-		 */
 		double gpPerHour;
-		/**
-		 * Loot from this source in the previous period of the same length.
-		 */
 		long previousTotal;
 		String bestItem;
 		long bestItemValue;
-		/**
-		 * Every item it gave in the period, for searching.
-		 */
 		Map<String, ItemTotal> items;
 	}
 
-	/**
-	 * One item's share of a source's loot.
-	 */
 	@Value
 	public static class ItemRow
 	{
 		String name;
 		long quantity;
 		long value;
-		/**
-		 * Average value per kill or trip.
-		 */
 		double perTime;
-		/**
-		 * Fraction of the source's loot.
-		 */
 		double share;
 	}
 
-	/**
-	 * Everything one source paid out over some days.
-	 */
 	@Value
 	public static class SourceDetail
 	{
 		String source;
 		long total;
 		int times;
-		/**
-		 * First and last days it paid out, or null if it never did in these days.
-		 */
 		String firstDay;
 		String lastDay;
-		/**
-		 * Most valuable first.
-		 */
 		List<ItemRow> items;
 	}
 
@@ -120,17 +77,11 @@ public final class LootReport
 				combined.getTimes() > 0 ? (double) t.getValue() / combined.getTimes() : t.getValue(),
 				combined.getValue() > 0 ? (double) t.getValue() / combined.getValue() : 0));
 		}
-		// Most valuable first; worthless items (pearls, untradeables) by how many
 		items.sort((a, b) -> a.getValue() != b.getValue() ? Long.compare(b.getValue(), a.getValue())
 			: Long.compare(b.getQuantity(), a.getQuantity()));
 		return new SourceDetail(source, combined.getValue(), combined.getTimes(), first, last, items);
 	}
 
-	/**
-	 * @param minutesPerKill the player's own average minutes per kill for a source, or NaN / <= 0
-	 * when it isn't known
-	 * @return one row per source that paid out, most loot first
-	 */
 	public static List<Row> build(List<DayRecord> days, List<DayRecord> previousDays, ToDoubleFunction<String> minutesPerKill)
 	{
 		Map<String, LootSource> current = combine(days);
@@ -168,27 +119,13 @@ public final class LootReport
 		return rows;
 	}
 
-	/**
-	 * How a source matched a search.
-	 */
 	@Value
 	public static class Match
 	{
-		/**
-		 * The source's own name matched, so all its items are relevant.
-		 */
 		boolean bySource;
-		/**
-		 * Items whose names matched, most valuable first.
-		 */
 		List<String> items;
 	}
 
-	/**
-	 * Matches a source by its name or the names of items it gave, ignoring case.
-	 *
-	 * @return null if neither matches; any match for a blank search
-	 */
 	public static Match match(Row row, String search)
 	{
 		String q = search == null ? "" : search.trim().toLowerCase(Locale.ENGLISH);
@@ -204,9 +141,6 @@ public final class LootReport
 		return items.isEmpty() ? null : new Match(false, items);
 	}
 
-	/**
-	 * Whether an item belongs in a search's results.
-	 */
 	public static boolean itemMatches(String item, String search)
 	{
 		String q = search == null ? "" : search.trim().toLowerCase(Locale.ENGLISH);

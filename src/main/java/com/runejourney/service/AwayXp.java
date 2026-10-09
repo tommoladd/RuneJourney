@@ -1,23 +1,10 @@
 package com.runejourney.service;
 
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.EventType;
-import com.runejourney.model.JourneyEvent;
+import com.runejourney.model.*;
 import com.runejourney.planner.Skills;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.NavigableMap;
+import java.time.*;
+import java.util.*;
 
-/**
- * XP gained while RuneJourney wasn't running, e.g. on mobile. The game only shows the new totals at
- * login, so all that's known is that it was gained between the last XP RuneJourney saw and now. A
- * gap that's all today is today's XP; one that began on an earlier day is kept aside rather than
- * landing on today, and only counted by ranges covering the whole gap.
- */
 final class AwayXp
 {
 	static final String NOTE_PREFIX = "While you were away";
@@ -28,41 +15,23 @@ final class AwayXp
 	{
 	}
 
-	/**
-	 * The first day XP found at login could have been gained.
-	 *
-	 * @param lastXpAt when RuneJourney last read the player's XP, or 0 if it was never saved
-	 */
 	static LocalDate windowStart(long lastXpAt, NavigableMap<String, DayRecord> days, LocalDate today)
 	{
 		if (lastXpAt > 0)
 		{
 			return Instant.ofEpochMilli(lastXpAt).atZone(ZoneId.systemDefault()).toLocalDate();
 		}
-		// Saved before this was tracked: the last day anything was played
 		DayRecord last = lastPlayed(days, today, true);
 		return last == null ? today : LocalDate.parse(last.getDate());
 	}
 
-	/**
-	 * Whether a range starting on {@code from} covers the whole gap the day's away XP was gained in.
-	 * Ranges are only ever asked about days up to their end, so only the start needs checking.
-	 */
 	static boolean counted(DayRecord day, LocalDate from)
 	{
 		return day.getAwayFrom() != null && day.getAwayFrom().compareTo(from.toString()) >= 0;
 	}
 
-	/**
-	 * Days saved before away XP was kept aside have it added to the day of the login that found it.
-	 * Moves it back out where the day shows that's what it was: a single "while you were away" note
-	 * that came before anything else that day, with the previous play on an earlier day.
-	 *
-	 * @return whether the day changed
-	 */
 	static boolean migrate(DayRecord day, NavigableMap<String, DayRecord> days)
 	{
-		// Days with XP ranges were saved after away XP was kept aside
 		if (day.getOfflineXp() <= 0 || day.getAwayFrom() != null || !day.getOfflineRanges().isEmpty())
 		{
 			return false;
@@ -86,7 +55,6 @@ final class AwayXp
 		}
 		for (JourneyEvent e : day.getEvents())
 		{
-			// The login that wrote the note also wrote its level-ups and any new week just before it
 			if (e.getTime() < note.getTime() - LOGIN_MILLIS)
 			{
 				return false;
@@ -123,10 +91,6 @@ final class AwayXp
 		return true;
 	}
 
-	/**
-	 * Levels behind an away level-up event: its detail holds the new XP total, and the XP gained
-	 * while away gives the level it started from.
-	 */
 	private static int levelsGained(JourneyEvent e, Map<String, Long> awaySkillXp)
 	{
 		try

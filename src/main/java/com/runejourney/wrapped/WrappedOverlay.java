@@ -1,23 +1,13 @@
 package com.runejourney.wrapped;
 
-import java.awt.Dimension;
-import java.awt.Graphics2D;
-import java.awt.Point;
-import java.awt.event.KeyEvent;
-import java.awt.event.MouseEvent;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import java.awt.*;
+import java.awt.event.*;
+import javax.inject.*;
 import net.runelite.api.Client;
 import net.runelite.client.input.KeyListener;
 import net.runelite.client.input.MouseListener;
-import net.runelite.client.ui.overlay.Overlay;
-import net.runelite.client.ui.overlay.OverlayLayer;
-import net.runelite.client.ui.overlay.OverlayPosition;
+import net.runelite.client.ui.overlay.*;
 
-/**
- * Draws Wrapped over the game. While it's showing it takes mouse clicks and a few keys (so clicking
- * through the slides doesn't walk your character around); it never sends input to the game.
- */
 @Singleton
 class WrappedOverlay extends Overlay implements MouseListener, KeyListener
 {

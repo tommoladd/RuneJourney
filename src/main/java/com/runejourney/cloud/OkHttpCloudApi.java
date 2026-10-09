@@ -1,36 +1,14 @@
 package com.runejourney.cloud;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
-import com.runejourney.service.PublicAchievements;
-import com.runejourney.service.PublicCollectionLog;
-import com.runejourney.service.PublicSnapshot;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import okhttp3.Call;
-import okhttp3.Callback;
-import okhttp3.HttpUrl;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
-import okhttp3.ResponseBody;
+import com.google.gson.*;
+import com.runejourney.service.*;
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.regex.*;
+import javax.inject.*;
+import okhttp3.*;
 
-/**
- * The cloud API over the RuneLite HTTP client. Every call is queued on the client's own threads,
- * never the caller's. Keys and signed URLs are never logged.
- */
 @Singleton
 class OkHttpCloudApi implements CloudApi
 {
@@ -41,10 +19,6 @@ class OkHttpCloudApi implements CloudApi
 	private static final Pattern XML_MESSAGE = Pattern.compile("<Message>([^<]{1,300})</Message>");
 
 	private final OkHttpClient api;
-	/**
-	 * For files, which can take a while on a slow connection. Every request goes to the server the
-	 * plugin is connected to: nothing is ever sent to the storage, or anywhere else.
-	 */
 	private final OkHttpClient files;
 	private final Gson gson;
 	private final SyncLog syncLog;
@@ -319,9 +293,6 @@ class OkHttpCloudApi implements CloudApi
 		return future;
 	}
 
-	/**
-	 * A request as the sync log shows it: its path on the server, never the key.
-	 */
 	private static String where(Request request)
 	{
 		HttpUrl url = request.url();
@@ -332,7 +303,6 @@ class OkHttpCloudApi implements CloudApi
 		}
 		catch (IOException e)
 		{
-			// Unknown
 		}
 		String size = bytes > 0 ? " [" + bytes + " bytes]" : "";
 		String path = url.encodedPath();
@@ -345,9 +315,6 @@ class OkHttpCloudApi implements CloudApi
 		return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
 	}
 
-	/**
-	 * Why a request was turned down: the API's error, or (behind a proxy, say) whatever came back.
-	 */
 	private static String detail(CloudException failure, String text)
 	{
 		if (failure.getCode() != null)
@@ -376,7 +343,6 @@ class OkHttpCloudApi implements CloudApi
 		}
 		catch (JsonParseException | IllegalStateException e)
 		{
-			// Not an API error, e.g. the storage's own XML
 		}
 		return new CloudException(status, error != null ? error.getError() : null, error != null ? error.getMessage() : null);
 	}

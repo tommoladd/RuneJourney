@@ -1,36 +1,15 @@
 package com.runejourney;
 
 import com.runejourney.service.JourneyService;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import java.util.*;
+import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.Client;
-import net.runelite.api.EnumComposition;
-import net.runelite.api.EnumID;
-import net.runelite.api.GrandExchangeOffer;
-import net.runelite.api.GrandExchangeOfferState;
-import net.runelite.api.Item;
-import net.runelite.api.ItemContainer;
-import net.runelite.api.ScriptID;
-import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.*;
+import net.runelite.api.gameval.*;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.ItemID;
-import net.runelite.api.gameval.VarPlayerID;
 import net.runelite.client.game.ItemManager;
 
-/**
- * Keeps a ledger of every item the account holds, per container, and values it at GE prices.
- *
- * Containers are read directly at the end of each tick rather than from change events: items
- * moving between the bank and equipment arrive as several events, and not every bank change
- * reliably produces one, which left the bank's value stale and counted gear twice. Reading the
- * containers once everything has settled always matches what the game shows.
- * Must only be used on the client thread.
- */
 @Slf4j
 @Singleton
 class WealthTracker
@@ -52,15 +31,9 @@ class WealthTracker
 	private final Client client;
 	private final ItemManager itemManager;
 	private final JourneyService service;
-	/**
-	 * Container contents as last read, to skip re-pricing when nothing moved.
-	 */
 	private final Map<Integer, int[]> lastSeen = new HashMap<>();
 	private long[] lastOffers;
 	private Map<Integer, Integer> lastPotions;
-	/**
-	 * Set once the login has settled, so Grand Exchange offers and the potion store have arrived.
-	 */
 	private boolean ready;
 	private boolean potionsDue;
 	private boolean dirty;
@@ -73,9 +46,6 @@ class WealthTracker
 		this.service = service;
 	}
 
-	/**
-	 * Re-price everything on the next tick, e.g. after logging in with holdings from last time.
-	 */
 	void invalidate()
 	{
 		dirty = true;
@@ -93,10 +63,6 @@ class WealthTracker
 		dirty = false;
 	}
 
-	/**
-	 * Call on every game tick while logged in. Containers the game hasn't sent this session (the
-	 * bank before it's opened, an unchecked looting bag) keep what was saved last time.
-	 */
 	void onTick()
 	{
 		boolean bankOpen = client.getWidget(InterfaceID.Bankmain.ITEMS) != null;
@@ -126,7 +92,6 @@ class WealthTracker
 				long cash = held.getOrDefault(ItemID.COINS, 0) + held.getOrDefault(ItemID.PLATINUM, 0) * 1000L;
 				service.onCash(part.getKey() == InventoryID.BANK, cash);
 			}
-			// Potions only go in or out of storage through the bank
 			potionsDue |= bankOpen;
 			dirty = true;
 		}
@@ -190,18 +155,11 @@ class WealthTracker
 		dirty = true;
 	}
 
-	/**
-	 * Adds what one Grand Exchange offer holds: the coins or items still waiting to trade, plus
-	 * what has traded so far. The game doesn't say what's been collected, so anything bought or
-	 * sold is counted as still in the offer; that's only off if part of an offer is collected
-	 * before it finishes.
-	 */
 	static void addOffer(Map<Integer, Long> held, boolean buy, int itemId, int total, int sold, long price,
 		long spent)
 	{
 		if (buy)
 		{
-			// Coins not yet spent, including the change when items sell for less than offered
 			held.merge(itemId, (long) sold, Long::sum);
 			held.merge(ItemID.COINS, Math.max(0, total * price - spent), Long::sum);
 		}
@@ -212,10 +170,6 @@ class WealthTracker
 		}
 	}
 
-	/**
-	 * Coins can add up past what one stack holds across eight offers, so they're kept as platinum
-	 * tokens plus change.
-	 */
 	static Map<Integer, Integer> toHoldings(Map<Integer, Long> held)
 	{
 		Map<Integer, Integer> out = new HashMap<>();
@@ -235,9 +189,6 @@ class WealthTracker
 		return out;
 	}
 
-	/**
-	 * The bank's potion store keeps doses rather than potions; the game's own script counts them.
-	 */
 	private void readPotionStorage(boolean bankOpen)
 	{
 		Map<Integer, Integer> held = new HashMap<>();
@@ -261,7 +212,6 @@ class WealthTracker
 		{
 			held.merge(ItemID.VIAL_EMPTY, vials, Integer::sum);
 		}
-		// An empty store outside the bank may just not have been sent yet; keep what was saved
 		if ((held.isEmpty() && !bankOpen) || held.equals(lastPotions))
 		{
 			return;
@@ -271,12 +221,6 @@ class WealthTracker
 		dirty = true;
 	}
 
-	/**
-	 * Stored doses as whole potions of the largest size, plus one potion holding what's left
-	 * over: 7 doses of prayer potion are a Prayer potion(4) and a Prayer potion(3).
-	 *
-	 * @param byDose the item for each number of doses (indexes 1-4), or -1 where there isn't one
-	 */
 	static void addDoses(Map<Integer, Integer> held, int doses, int[] byDose)
 	{
 		int most = 0;
@@ -302,9 +246,6 @@ class WealthTracker
 		}
 	}
 
-	/**
-	 * Real items only: bank placeholders and fillers mark empty slots, so they're skipped.
-	 */
 	private Map<Integer, Integer> holdings(Item[] items)
 	{
 		Map<Integer, Integer> held = new HashMap<>();

@@ -1,53 +1,24 @@
 package com.runejourney.service;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
+import com.google.gson.*;
 import com.google.gson.reflect.TypeToken;
-import com.runejourney.cloud.CloudCredentials;
-import com.runejourney.cloud.CloudFiles;
-import com.runejourney.cloud.SyncState;
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.ProfileData;
+import com.runejourney.cloud.*;
+import com.runejourney.model.*;
 import java.awt.image.BufferedImage;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.lang.reflect.Type;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.channels.OverlappingFileLockException;
+import java.nio.channels.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
+import java.nio.file.*;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.stream.*;
 import javax.imageio.ImageIO;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import lombok.Setter;
-import lombok.Value;
+import javax.inject.*;
+import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.util.Filepath;
 
-/**
- * Local-first persistence. Layout inside the plugin data directory:
- * <pre>
- *   &lt;profileKey&gt;/profile.json
- *   &lt;profileKey&gt;/days/yyyy-MM-dd.json
- *   &lt;profileKey&gt;/screenshots/*.png
- *   &lt;profileKey&gt;/sync/state.json, outbox.json, lock
- *   &lt;profileKey&gt;/backup-&lt;time&gt;/                (the journey before it was replaced by the cloud's)
- *   cloud/credentials.json
- * </pre>
- * All methods perform blocking IO and must not be called on the client thread.
- */
 @Slf4j
 @Singleton
 public class JourneyStore implements CloudFiles
@@ -68,13 +39,7 @@ public class JourneyStore implements CloudFiles
 	}.getType();
 
 	private final Gson gson;
-	/**
-	 * Profile key to the stamps of its files as this RuneLite last loaded or saved them.
-	 */
 	private final Map<String, Map<String, String>> seen = new ConcurrentHashMap<>();
-	/**
-	 * Accounts this window holds the lock for, and what holds each: playing it, a sync, a save.
-	 */
 	private final Map<String, FileLock> locks = new HashMap<>();
 	private final Map<String, List<String>> holders = new HashMap<>();
 
@@ -94,14 +59,9 @@ public class JourneyStore implements CloudFiles
 		TreeMap<String, DayRecord> days;
 	}
 
-	/**
-	 * Fails rather than leaving out a file that couldn't be read, so a blank profile is never saved
-	 * over one that's still there. A file that isn't valid JSON is moved aside and left out.
-	 */
 	public Loaded load(String profileKey) throws IOException
 	{
 		Filepath dir = profileDir(profileKey);
-		// Before reading, so a write that lands during the load shows up as a change
 		Map<String, String> stamps = scan(dir);
 		ProfileData profile = null;
 		Filepath profileFile = dir.joinSegment(PROFILE_FILE);
@@ -125,7 +85,6 @@ public class JourneyStore implements CloudFiles
 
 	private <T> T read(Filepath file, Type type) throws IOException
 	{
-		// Read in full first: Gson reports a failed read as bad JSON
 		String json;
 		try (InputStream in = file.openInputStream())
 		{
@@ -141,9 +100,6 @@ public class JourneyStore implements CloudFiles
 		return value;
 	}
 
-	/**
-	 * @return the parsed file, or null if it's damaged (not valid JSON, or empty)
-	 */
 	static <T> T parse(Gson gson, String json, Class<T> type)
 	{
 		return parse(gson, json, (Type) type);
@@ -202,10 +158,6 @@ public class JourneyStore implements CloudFiles
 		return target;
 	}
 
-	/**
-	 * Whether a profile's files changed since it was last loaded, other than by this RuneLite's own
-	 * saves. Another RuneLite window playing the same account changes them.
-	 */
 	@Override
 	public boolean changedOnDisk(String profileKey) throws IOException
 	{
@@ -222,9 +174,6 @@ public class JourneyStore implements CloudFiles
 		}
 	}
 
-	/**
-	 * The size and modified time of each data file, by path within the profile folder.
-	 */
 	private static Map<String, String> scan(Filepath dir) throws IOException
 	{
 		Map<String, String> stamps = new ConcurrentHashMap<>();
@@ -290,15 +239,9 @@ public class JourneyStore implements CloudFiles
 	{
 		String name;
 		long size;
-		/**
-		 * Epoch millis the file was last written.
-		 */
 		long modified;
 	}
 
-	/**
-	 * Only names RuneJourney itself writes, so a name can never point outside the folder.
-	 */
 	private static final java.util.regex.Pattern SCREENSHOT_NAME = java.util.regex.Pattern.compile("[A-Za-z0-9._-]+\\.png");
 
 	public static boolean isScreenshotName(String name)
@@ -306,9 +249,6 @@ public class JourneyStore implements CloudFiles
 		return name != null && SCREENSHOT_NAME.matcher(name).matches() && !name.startsWith(".");
 	}
 
-	/**
-	 * Every screenshot saved for a profile, newest first.
-	 */
 	public List<ScreenshotFile> listScreenshots(String profileKey) throws IOException
 	{
 		Filepath dir = profileDir(profileKey).joinSegment(SCREENSHOT_DIR);
@@ -344,10 +284,6 @@ public class JourneyStore implements CloudFiles
 		file.delete();
 		return true;
 	}
-
-	// ------------------------------------------------------------------
-	// Cloud sync
-	// ------------------------------------------------------------------
 
 	private Filepath syncDir(String profileKey)
 	{
@@ -480,9 +416,6 @@ public class JourneyStore implements CloudFiles
 		return locks.containsKey(profileKey);
 	}
 
-	/**
-	 * Gives up one hold. The lock itself is released once nothing in this window holds it.
-	 */
 	@Override
 	public synchronized void unlock(String profileKey, String holder)
 	{
@@ -533,9 +466,6 @@ public class JourneyStore implements CloudFiles
 		}
 	}
 
-	/**
-	 * @return null if the file doesn't exist, or is damaged (it's moved aside)
-	 */
 	private <T> T readJson(Filepath file, Type type) throws IOException
 	{
 		if (!file.exists())

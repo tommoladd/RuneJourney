@@ -1,27 +1,14 @@
 package com.runejourney.sync;
 
 import com.runejourney.planner.Skills;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
-/**
- * Stretches of a skill's XP, as [from, to] XP totals. Two records of the same stretch of XP overlap,
- * which is how XP counted twice is found.
- */
 public final class XpRanges
 {
 	private XpRanges()
 	{
 	}
 
-	/**
-	 * Sorted, with empty ranges dropped and overlapping or touching ones joined.
-	 */
 	public static List<long[]> normalize(Collection<long[]> ranges)
 	{
 		List<long[]> sorted = new ArrayList<>();
@@ -56,9 +43,6 @@ public final class XpRanges
 		return normalize(all);
 	}
 
-	/**
-	 * The parts of {@code a} not in {@code b}.
-	 */
 	public static List<long[]> subtract(Collection<long[]> a, Collection<long[]> b)
 	{
 		List<long[]> out = new ArrayList<>();
@@ -100,9 +84,6 @@ public final class XpRanges
 		return total;
 	}
 
-	/**
-	 * Levels gained across the ranges.
-	 */
 	public static int levels(Collection<long[]> ranges)
 	{
 		int total = 0;
@@ -113,9 +94,6 @@ public final class XpRanges
 		return total;
 	}
 
-	/**
-	 * Skill by skill.
-	 */
 	public static Map<String, List<long[]>> union(Map<String, List<long[]>> a, Map<String, List<long[]>> b)
 	{
 		Map<String, List<long[]>> out = new HashMap<>();
@@ -132,9 +110,6 @@ public final class XpRanges
 		return out;
 	}
 
-	/**
-	 * Skill by skill.
-	 */
 	public static Map<String, List<long[]>> subtract(Map<String, List<long[]>> a, Map<String, List<long[]>> b)
 	{
 		Map<String, List<long[]>> out = new HashMap<>();
@@ -149,9 +124,6 @@ public final class XpRanges
 		return out;
 	}
 
-	/**
-	 * Skill by skill, normalized, for comparing two records of the same XP.
-	 */
 	public static Map<String, List<long[]>> normalize(Map<String, List<long[]>> ranges)
 	{
 		return union(ranges, new HashMap<>());

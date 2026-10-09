@@ -1,13 +1,9 @@
 package com.runejourney.ui;
 
 import java.awt.Component;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.JList;
+import javax.swing.*;
 import net.runelite.api.Skill;
 
-/**
- * Shows skills by their in-game name ("Attack") rather than the enum constant ("ATTACK").
- */
 class SkillRenderer extends DefaultListCellRenderer
 {
 	@Override

@@ -1,26 +1,14 @@
 package com.runejourney.ui;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 import javax.swing.SwingUtilities;
 import lombok.Value;
-import net.runelite.api.Client;
-import net.runelite.api.ItemComposition;
+import net.runelite.api.*;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.game.ItemManager;
 
-/**
- * Searchable names of every item, including untradeables such as pets. Built once, in chunks on the
- * client thread so it never stalls the game.
- */
 @Singleton
 class ItemIndex
 {
@@ -38,10 +26,6 @@ class ItemIndex
 	private final ItemManager itemManager;
 
 	private volatile List<Entry> entries;
-	/**
-	 * Grand Exchange price per item id, captured while building the index (prices can only be
-	 * looked up on the client thread).
-	 */
 	private final Map<Integer, Long> prices = new ConcurrentHashMap<>();
 	private boolean building;
 	private final List<Runnable> waiting = new ArrayList<>();
@@ -59,9 +43,6 @@ class ItemIndex
 		return entries != null;
 	}
 
-	/**
-	 * Builds the index if needed, then runs {@code onReady} on the Swing thread.
-	 */
 	synchronized void load(Runnable onReady)
 	{
 		if (entries != null)
@@ -105,7 +86,6 @@ class ItemIndex
 			next[0] = end;
 			if (end < count)
 			{
-				// Not done: run again next tick
 				return false;
 			}
 			finish(list);
@@ -124,17 +104,11 @@ class ItemIndex
 		waiting.clear();
 	}
 
-	/**
-	 * Grand Exchange price of an item, or 0 if unknown or untradeable.
-	 */
 	long price(int id)
 	{
 		return prices.getOrDefault(id, 0L);
 	}
 
-	/**
-	 * Items whose name contains the query, names starting with it first.
-	 */
 	List<Entry> search(String query, int limit)
 	{
 		List<Entry> all = entries;

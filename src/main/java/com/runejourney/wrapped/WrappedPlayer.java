@@ -1,34 +1,23 @@
 package com.runejourney.wrapped;
 
 import com.runejourney.RuneJourneyConfig;
+import com.runejourney.planner.Skills;
 import com.runejourney.service.JourneyStore;
 import java.awt.Point;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.*;
 import java.util.function.Supplier;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.Client;
-import net.runelite.api.GameState;
-import com.runejourney.planner.Skills;
-import net.runelite.api.Skill;
-import net.runelite.client.game.ItemManager;
-import net.runelite.client.game.SkillIconManager;
-import net.runelite.http.api.item.ItemPrice;
-import net.runelite.client.input.KeyManager;
-import net.runelite.client.input.MouseManager;
+import net.runelite.api.*;
+import net.runelite.client.game.*;
+import net.runelite.client.input.*;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.http.api.item.ItemPrice;
 
-/**
- * Plays a Wrapped: which slide is showing, timing, and whether it's drawn over the game or in
- * its own window. Input arrives from the Swing thread and drawing happens on the client thread, so
- * state is guarded by this object's lock.
- */
 @Slf4j
 @Singleton
 public class WrappedPlayer
@@ -42,9 +31,6 @@ public class WrappedPlayer
 	private final JourneyStore store;
 	private final ItemManager itemManager;
 	private final SkillIconManager skillIconManager;
-	/**
-	 * Resolved icons by key. Missing icons are cached as EMPTY so lookups aren't repeated every frame.
-	 */
 	private final Map<String, BufferedImage> iconCache = new ConcurrentHashMap<>();
 	private static final BufferedImage EMPTY = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
 
@@ -85,9 +71,6 @@ public class WrappedPlayer
 		this.profileKey = profileKey;
 	}
 
-	/**
-	 * Starts playing. Call on the Swing thread.
-	 */
 	public void play(WrappedWeek w)
 	{
 		close();
@@ -100,7 +83,6 @@ public class WrappedPlayer
 			inGame = config.wrappedInGame() && client.getGameState() == GameState.LOGGED_IN;
 		}
 		loadScreenshot();
-		// Warm up the icons so they're ready when their slide appears
 		for (WrappedWeek.Slide s : w.getSlides())
 		{
 			icon(s.getIcon());
@@ -120,9 +102,6 @@ public class WrappedPlayer
 		}
 	}
 
-	/**
-	 * True when playing over the game screen (rather than in a window).
-	 */
 	public boolean isPlayingInGame()
 	{
 		return isInGame();
@@ -133,9 +112,6 @@ public class WrappedPlayer
 		return week != null && inGame;
 	}
 
-	/**
-	 * The current slide state, advancing automatically when a slide's time is up.
-	 */
 	synchronized Frame frame()
 	{
 		if (week == null)
@@ -177,9 +153,6 @@ public class WrappedPlayer
 		}
 	}
 
-	/**
-	 * Game art for an icon key (see {@link WrappedIcons}), or null.
-	 */
 	BufferedImage icon(String key)
 	{
 		if (key == null)
@@ -235,9 +208,6 @@ public class WrappedPlayer
 		hover = p;
 	}
 
-	/**
-	 * A click on the slides: buttons act, anywhere else moves on.
-	 */
 	void click(Point p)
 	{
 		WrappedRenderer.Layout l;
@@ -299,9 +269,6 @@ public class WrappedPlayer
 		loadScreenshot();
 	}
 
-	/**
-	 * Stops playing. Safe to call from any thread.
-	 */
 	public void close()
 	{
 		boolean wasInGame;

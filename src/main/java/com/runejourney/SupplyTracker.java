@@ -1,33 +1,16 @@
 package com.runejourney;
 
 import com.runejourney.service.JourneyService;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import net.runelite.api.Item;
-import net.runelite.api.ItemContainer;
+import javax.inject.*;
+import net.runelite.api.*;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.util.Text;
 
-/**
- * Values the food and potions the player eats and drinks. An Eat or Drink click is matched to the
- * next inventory change that removes that item; whatever it leaves behind (a lower-dose potion,
- * half a pie, an empty vial) is deducted, so a potion costs one dose rather than the whole potion.
- * Must only be used on the client thread.
- */
 @Singleton
 class SupplyTracker
 {
-	/**
-	 * Clicks are matched to inventory changes for this long; the server applies them a tick later.
-	 */
 	private static final int PENDING_TICKS = 3;
 	private static final Pattern DOSE = Pattern.compile("\\s*\\(\\d\\)$");
 	private static final String[] PORTION_PREFIXES = {"half a ", "half an ", "1/2 ", "2/3 ", "slice of "};
@@ -66,12 +49,6 @@ class SupplyTracker
 		}
 	}
 
-	/**
-	 * Records anything eaten or drunk in this inventory change.
-	 *
-	 * @return the item quantity changes that were supplies being used, so they aren't also counted
-	 * as skilling income
-	 */
 	Map<Integer, Integer> onInventory(ItemContainer container, int tick)
 	{
 		Map<Integer, Integer> now = new HashMap<>();
@@ -135,27 +112,17 @@ class SupplyTracker
 		return name != null ? name : "";
 	}
 
-	/**
-	 * Potions are grouped by name across doses ("Prayer potion"), food keeps its own name.
-	 */
 	static String supplyName(String itemName)
 	{
 		return DOSE.matcher(itemName).replaceFirst("");
 	}
 
-	/**
-	 * Whether an item that appeared when something was eaten or drunk is what it left behind.
-	 */
 	static boolean isLeftover(String consumed, String gained)
 	{
 		String g = gained.toLowerCase(Locale.ENGLISH);
 		return CONTAINERS.contains(g) || core(consumed).equals(core(gained));
 	}
 
-	/**
-	 * "Prayer potion(3)" and "Prayer potion(4)" share "prayer potion"; "Half a summer pie" and
-	 * "Summer pie" share "summer pie"; "2/3 cake" and "Slice of cake" share "cake".
-	 */
 	private static String core(String name)
 	{
 		String c = DOSE.matcher(name.toLowerCase(Locale.ENGLISH)).replaceFirst("");

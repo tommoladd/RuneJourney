@@ -1,28 +1,14 @@
 package com.runejourney.ui;
 
-import com.runejourney.report.Analytics;
-import com.runejourney.report.Unit;
-import java.awt.Color;
-import java.awt.Cursor;
-import java.awt.Dimension;
-import java.awt.FontMetrics;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import com.runejourney.report.*;
+import java.awt.*;
+import java.awt.event.*;
 import java.util.Collections;
 import java.util.List;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import javax.swing.Icon;
-import javax.swing.JComponent;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
+import java.util.function.*;
+import javax.swing.*;
+import net.runelite.client.ui.*;
 
-/**
- * Horizontal bars, e.g. XP by skill or kills by boss. Rows can be clicked to drill in.
- */
 class BarChart extends JComponent
 {
 	private static final int ROW = 22;

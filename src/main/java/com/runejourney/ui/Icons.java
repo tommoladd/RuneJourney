@@ -1,9 +1,6 @@
 package com.runejourney.ui;
 
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import java.awt.*;
 import java.awt.image.BufferedImage;
 
 public final class Icons
@@ -12,9 +9,6 @@ public final class Icons
 	{
 	}
 
-	/**
-	 * A small compass-style icon, drawn in code so no image asset is needed.
-	 */
 	public static BufferedImage navIcon()
 	{
 		BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);

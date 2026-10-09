@@ -3,9 +3,6 @@ package com.runejourney.report;
 import com.runejourney.util.Format;
 import java.util.Locale;
 
-/**
- * How a metric's values are displayed.
- */
 public enum Unit
 {
 	COUNT,
@@ -32,9 +29,6 @@ public enum Unit
 		}
 	}
 
-	/**
-	 * Shorter form for chart axes.
-	 */
 	public String axis(double v)
 	{
 		switch (this)

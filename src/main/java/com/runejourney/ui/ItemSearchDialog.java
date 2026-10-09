@@ -1,40 +1,17 @@
 package com.runejourney.ui;
 
 import com.runejourney.model.GoalItem;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.GridLayout;
-import java.awt.Window;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import javax.swing.BorderFactory;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.DefaultListModel;
-import javax.swing.ImageIcon;
-import javax.swing.JButton;
-import javax.swing.JDialog;
-import javax.swing.JLabel;
-import javax.swing.JList;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTextField;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
+import javax.swing.event.*;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.util.AsyncBufferedImage;
 
-/**
- * Search for items by name and pick one or more of them.
- */
 final class ItemSearchDialog
 {
 	private final ItemIndex index;
@@ -172,9 +149,6 @@ final class ItemSearchDialog
 		}
 	}
 
-	/**
-	 * Shows the picker. Returns the chosen items, or null if cancelled.
-	 */
 	static List<GoalItem> show(Component parent, ItemIndex index, ItemManager itemManager, List<GoalItem> initial)
 	{
 		ItemSearchDialog d = new ItemSearchDialog(parent, index, itemManager, initial);

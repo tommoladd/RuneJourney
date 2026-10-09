@@ -1,31 +1,15 @@
 package com.runejourney.wrapped;
 
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.EventType;
-import com.runejourney.model.JourneyEvent;
+import com.runejourney.model.*;
 import com.runejourney.planner.Skills;
 import com.runejourney.util.Format;
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
-import java.time.format.TextStyle;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Random;
+import java.time.format.*;
+import java.util.*;
 import java.util.stream.Collectors;
-import lombok.Builder;
-import lombok.Singular;
-import lombok.Value;
+import lombok.*;
 import net.runelite.api.Skill;
 
-/**
- * Turns a week of records into Wrapped slides. Only stats worth celebrating get a slide, and the
- * phrasing, order and theme vary with the week so no two Wrapped feel the same. Pure, so it can be tested.
- */
 public final class WrappedBuilder
 {
 	private static final DateTimeFormatter RANGE = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH);
@@ -37,24 +21,12 @@ public final class WrappedBuilder
 	{
 		LocalDate weekStart;
 		String player;
-		/**
-		 * The week's days (missing days are fine).
-		 */
 		List<DayRecord> days;
-		/**
-		 * Totals of earlier weeks, oldest first, for "biggest week yet" comparisons.
-		 */
 		@Singular("earlierWeek")
 		List<long[]> earlierWeeks;
-		/**
-		 * Weekly plan results for this week: [goal name, achieved, target, isMoney].
-		 */
 		@Singular
 		List<Object[]> planResults;
 		int playStreak;
-		/**
-		 * Known item ids by lower-case name (e.g. from imported collection log pages).
-		 */
 		Map<String, Integer> itemIds;
 	}
 
@@ -62,9 +34,6 @@ public final class WrappedBuilder
 	{
 	}
 
-	/**
-	 * [xp, kills, playMillis] for a week, used to compare weeks.
-	 */
 	public static long[] weekTotals(List<DayRecord> days)
 	{
 		long xp = 0;
@@ -88,7 +57,6 @@ public final class WrappedBuilder
 		w.setPlayer(in.getPlayer());
 		w.setTheme((int) Math.floorMod(in.getWeekStart().toEpochDay() / 7, THEMES));
 
-		// ---- Gather the week
 		long play = 0;
 		long xp = 0;
 		long income = 0;
@@ -135,7 +103,6 @@ public final class WrappedBuilder
 
 		List<WrappedWeek.Slide> middle = new ArrayList<>();
 
-		// ---- Time played
 		if (play > 0)
 		{
 			WrappedWeek.Slide s = slide(pick(rnd, "This week you played for", "You spent", "Time in Gielinor"),
@@ -148,7 +115,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- XP
 		if (xp > 0)
 		{
 			WrappedWeek.Slide s = slide(pick(rnd, "You gained", "You racked up", "Your skills grew by"),
@@ -168,7 +134,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Levels
 		if (levels > 0)
 		{
 			WrappedWeek.Slide s = slide(pick(rnd, "You levelled up", "Level-up fireworks went off"),
@@ -184,7 +149,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Bosses
 		if (kills > 0)
 		{
 			Map.Entry<String, Integer> fav = bosses.entrySet().stream().max(Map.Entry.comparingByValue()).get();
@@ -197,7 +161,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Income
 		if (income > 0)
 		{
 			WrappedWeek.Slide s = slide(pick(rnd, "You made", "Your coffers grew by", "Loot and profit"),
@@ -212,7 +175,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Clues
 		if (clues > 0)
 		{
 			WrappedWeek.Slide s = slide(pick(rnd, "You completed", "Treasure hunted"), clues, WrappedWeek.ValueFormat.COUNT,
@@ -222,7 +184,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Collection log
 		if (clogSlots > 0)
 		{
 			WrappedWeek.Slide s = slide(pick(rnd, "You added", "Your collection log grew by"), clogSlots, WrappedWeek.ValueFormat.COUNT,
@@ -233,7 +194,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Deaths
 		if (deaths > 0)
 		{
 			WrappedWeek.Slide s = slide(pick(rnd, "You died", "Death saw you"), deaths, WrappedWeek.ValueFormat.COUNT,
@@ -244,7 +204,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Goals completed and weekly plans
 		List<JourneyEvent> goals = events.stream().filter(e -> e.getType() == EventType.GOAL_COMPLETED).collect(Collectors.toList());
 		for (JourneyEvent g : goals)
 		{
@@ -274,7 +233,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Records beaten
 		List<JourneyEvent> records = events.stream().filter(e -> e.getType() == EventType.RECORD).collect(Collectors.toList());
 		if (!records.isEmpty())
 		{
@@ -285,7 +243,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Streak
 		if (in.getPlayStreak() >= 3)
 		{
 			WrappedWeek.Slide s = slide("You're on a streak:", in.getPlayStreak(), WrappedWeek.ValueFormat.COUNT, "days in a row");
@@ -294,7 +251,6 @@ public final class WrappedBuilder
 			middle.add(s);
 		}
 
-		// ---- Biggest week yet?
 		long[] totals = weekTotals(in.getDays());
 		if (!in.getEarlierWeeks().isEmpty())
 		{
@@ -311,7 +267,6 @@ public final class WrappedBuilder
 			}
 		}
 
-		// Shuffle the middle a little so each week feels different, keeping XP and time near the start
 		List<WrappedWeek.Slide> opening = new ArrayList<>(middle.subList(0, Math.min(2, middle.size())));
 		List<WrappedWeek.Slide> rest = new ArrayList<>(middle.subList(opening.size(), middle.size()));
 		Collections.shuffle(rest, rnd);
@@ -320,7 +275,6 @@ public final class WrappedBuilder
 			Collections.reverse(opening);
 		}
 
-		// ---- Best moment, near the end
 		JourneyEvent moment = bestMoment(events);
 
 		WrappedWeek.Slide intro = new WrappedWeek.Slide();
@@ -419,7 +373,6 @@ public final class WrappedBuilder
 				default:
 					rank = 6;
 			}
-			// Prefer moments with a screenshot, then higher value
 			if (e.getScreenshot() != null)
 			{
 				rank -= 1;
@@ -439,9 +392,6 @@ public final class WrappedBuilder
 		s.getLineIcons().add(icon);
 	}
 
-	/**
-	 * Icon for an item named in an event: its known id when available, otherwise looked up by name later.
-	 */
 	private static String itemIcon(Input in, String name)
 	{
 		String clean = name.replaceFirst("^[\\d,]+ x ", "").replaceFirst("^Pet: ", "");

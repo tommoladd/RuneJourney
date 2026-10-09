@@ -1,7 +1,6 @@
 package com.runejourney.model;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 
 @Getter
 @RequiredArgsConstructor
@@ -26,9 +25,6 @@ public enum GoalType
 
 	private final String label;
 
-	/**
-	 * Goals measured by an account counter such as kill count or clue completions.
-	 */
 	public boolean isCounter()
 	{
 		return this == BOSS_KC || this == CLUES || this == COMBAT_ACHIEVEMENTS || this == COMBAT_TASKS || this == QUEST_POINTS
@@ -36,9 +32,6 @@ public enum GoalType
 			|| this == MONEY || this == PURCHASE || this == NET_WORTH || this == CLOG_CATEGORY;
 	}
 
-	/**
-	 * Goals measured in skill XP.
-	 */
 	public boolean isSkilling()
 	{
 		return this == SKILL || this == TOTAL_LEVEL || this == BASE_LEVEL || this == MAX_CAPE;

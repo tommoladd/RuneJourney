@@ -1,30 +1,20 @@
 package com.runejourney.ui;
 
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.EventType;
-import com.runejourney.model.JourneyEvent;
+import com.runejourney.model.*;
 import com.runejourney.service.JourneyService;
 import com.runejourney.util.Format;
-import java.awt.BorderLayout;
-import java.awt.GridLayout;
+import java.awt.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 import javax.inject.Inject;
-import javax.swing.JButton;
-import javax.swing.JComboBox;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.FontManager;
 
-/**
- * The chronological scrapbook of the account.
- */
 class JourneyTab extends RefreshableTab
 {
 	private static final int PAGE_DAYS = 14;
@@ -117,7 +107,6 @@ class JourneyTab extends RefreshableTab
 	@Override
 	void refresh(boolean force)
 	{
-		// The timeline can be long, so only rebuild it when events change
 		int version = service.getEventVersion();
 		if (!force && version == lastEventVersion)
 		{

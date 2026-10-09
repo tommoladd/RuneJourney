@@ -1,18 +1,11 @@
 package com.runejourney.report;
 
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.LootSource;
+import com.runejourney.model.*;
 import com.runejourney.planner.Skills;
 import java.time.LocalDate;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.TreeSet;
+import java.util.*;
 import net.runelite.api.Skill;
 
-/**
- * One row per day with every tracked metric, plus per-skill XP, per-boss kills and loot per source, for spreadsheets.
- */
 public final class CsvExport
 {
 	private static final Metric[] COLUMNS = {

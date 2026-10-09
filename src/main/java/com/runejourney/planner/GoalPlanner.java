@@ -1,42 +1,16 @@
 package com.runejourney.planner;
 
-import com.runejourney.model.Goal;
-import com.runejourney.model.GoalItem;
-import com.runejourney.model.GoalType;
-import java.time.DayOfWeek;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.temporal.ChronoUnit;
-import java.time.temporal.TemporalAdjusters;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.PriorityQueue;
-import java.util.Set;
-import net.runelite.api.Experience;
-import net.runelite.api.Skill;
+import com.runejourney.model.*;
+import java.time.*;
+import java.time.temporal.*;
+import java.util.*;
+import net.runelite.api.*;
 
-/**
- * Pure planning logic: resolves what a goal requires, how far along it is, and generates
- * adaptive weekly targets. No client access so it can be unit tested.
- * <p>
- * The account "state" map holds skill XP keyed by skill name, plus account counters keyed as in
- * {@link Counters}.
- */
 public final class GoalPlanner
 {
-	/**
-	 * Week plan key used for counter goals.
-	 */
 	public static final String COUNT_KEY = "__count";
 
 	private static final long DAY_MILLIS = 86_400_000L;
-	/**
-	 * Days of history needed before the player's own pace is used for projections.
-	 */
 	private static final double MIN_PACE_DAYS = 2;
 
 	private GoalPlanner()
@@ -54,10 +28,6 @@ public final class GoalPlanner
 		return v == null ? 0 : v;
 	}
 
-	/**
-	 * Per-skill XP targets required to complete the goal. For total level goals the cheapest
-	 * levels (by estimated hours) are chosen greedily.
-	 */
 	public static Map<Skill, Long> resolveTargets(Goal goal, Map<String, Long> xp, RateSource rates)
 	{
 		Map<Skill, Long> targets = new LinkedHashMap<>();
@@ -91,10 +61,6 @@ public final class GoalPlanner
 		return targets;
 	}
 
-	/**
-	 * Whether XP in a skill moves a skilling goal forward, given what the skill had before it was
-	 * gained: XP past 99, or in a skill the goal has already finished with, doesn't.
-	 */
 	public static boolean helps(Goal goal, Skill skill, long xpBefore)
 	{
 		switch (goal.getType())
@@ -188,7 +154,6 @@ public final class GoalPlanner
 			case ITEMS:
 				return !goal.getItems().isEmpty() && goal.getItems().stream().allMatch(GoalItem::isObtained);
 			case PURCHASE:
-				// Affording it isn't enough: purchases complete when the item is bought
 				return goal.isComplete();
 			default:
 				if (goal.getType().isCounter())
@@ -265,9 +230,6 @@ public final class GoalPlanner
 		return Math.max(0, Math.min(1, v));
 	}
 
-	/**
-	 * Level including progress towards the next one, e.g. 90.74.
-	 */
 	public static double exactLevel(long xp)
 	{
 		int level = Skills.level(xp);
@@ -401,7 +363,6 @@ public final class GoalPlanner
 			return;
 		}
 
-		// Units of progress: levels for total level goals, counts for counters, items, otherwise XP
 		double doneUnits;
 		double remainingUnits;
 		switch (goal.getType())
@@ -429,7 +390,6 @@ public final class GoalPlanner
 		double elapsedDays = (nowMillis - goal.getCreatedAt()) / (double) DAY_MILLIS;
 		boolean hoursKnown = p.getHoursRemaining() > 0;
 
-		// Item drops are too random to project from pace
 		LocalDate projected = null;
 		if (remainingUnits <= 0)
 		{
@@ -543,13 +503,6 @@ public final class GoalPlanner
 		return !goal.isComplete() && (goal.getType().isSkilling() || goal.getType().isCounter());
 	}
 
-	/**
-	 * Starts a new weekly plan if the week has changed, recording how the previous week went.
-	 * Targets are regenerated from what actually remains, so the plan rebalances around what the
-	 * player chose to do rather than punishing them for ignoring it.
-	 *
-	 * @return [target, achieved] totals of the week that just ended, or null if nothing ended
-	 */
 	public static long[] rollWeek(Goal goal, Map<String, Long> state, RateSource rates, int defaultHoursPerWeek, LocalDate today)
 	{
 		if (!plannable(goal))
@@ -582,7 +535,6 @@ public final class GoalPlanner
 			else
 			{
 				Set<String> keys = new LinkedHashSet<>(goal.getWeekTargets().keySet());
-				// XP outside the plan still counts when it moved the goal forward
 				for (Skill s : Skills.ALL)
 				{
 					long before = goal.getWeekStartXp().getOrDefault(s.name(), Long.MAX_VALUE);
@@ -635,10 +587,6 @@ public final class GoalPlanner
 		return ended;
 	}
 
-	/**
-	 * Regenerates the current week's targets, e.g. after the goal was edited. Progress already made
-	 * this week is kept.
-	 */
 	public static void replan(Goal goal, RateSource rates, int defaultHoursPerWeek, long nowMillis)
 	{
 		if (!plannable(goal) || goal.getWeekStart() == null)
@@ -650,10 +598,6 @@ public final class GoalPlanner
 		planWeek(goal, rates, defaultHoursPerWeek, created.isAfter(monday) ? created : monday);
 	}
 
-	/**
-	 * Sets week targets from the state at the start of the week. {@code planFrom} is the first day being
-	 * planned for, so a goal created mid-week only gets targets for the days that are left.
-	 */
 	private static void planWeek(Goal goal, RateSource rates, int defaultHoursPerWeek, LocalDate planFrom)
 	{
 		Map<String, Long> base = goal.getWeekStartXp();
@@ -692,7 +636,6 @@ public final class GoalPlanner
 		}
 		else
 		{
-			// Without a date, plan around the player's available hours (when time can be estimated)
 			int hours = hoursPerWeek(goal, defaultHoursPerWeek);
 			fraction = totalHours <= 0 ? 0 : Math.min(1, hours / totalHours);
 		}
@@ -702,7 +645,6 @@ public final class GoalPlanner
 		Map<String, Long> weekTargets = new LinkedHashMap<>();
 		for (Map.Entry<String, Long> e : remaining.entrySet())
 		{
-			// Counts are whole units; round up so small goals still get a target
 			long t = COUNT_KEY.equals(e.getKey())
 				? (long) Math.ceil(e.getValue() * fraction)
 				: Math.round(e.getValue() * fraction);

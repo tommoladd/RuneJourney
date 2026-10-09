@@ -1,19 +1,10 @@
 package com.runejourney.service;
 
-import com.runejourney.model.ItemTotal;
-import com.runejourney.model.JourneyEvent;
-import com.runejourney.model.LootSource;
+import com.runejourney.model.*;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import lombok.Data;
 
-/**
- * Aggregated activity over a date range, used for the Today page, weekly/monthly recaps and
- * "since" comparisons.
- */
 @Data
 public class RangeSummary
 {
@@ -22,10 +13,6 @@ public class RangeSummary
 	private int daysPlayed;
 	private long playMillis;
 	private long xpGained;
-	/**
-	 * XP gained away from RuneJourney that isn't in xpGained, as it may be from before this range:
-	 * it was gained some time between awayFrom and awayTo.
-	 */
 	private long awayXp;
 	private LocalDate awayFrom;
 	private LocalDate awayTo;
@@ -41,9 +28,6 @@ public class RangeSummary
 	private int cluesCompleted;
 	private Map<String, Long> skillXp = new HashMap<>();
 	private Map<String, Integer> bossKillsByName = new HashMap<>();
-	/**
-	 * Skill name to [lowest level before, highest level reached] from level events.
-	 */
 	private Map<String, int[]> levelRanges = new HashMap<>();
 	private long clueLootValue;
 	private long skillingIncome;
@@ -54,14 +38,8 @@ public class RangeSummary
 	private int combatTasks;
 	private int combatTaskPoints;
 	private Map<String, Integer> clues = new HashMap<>();
-	/**
-	 * Skill XP and account counters at the start and end of the range (may be empty for old data).
-	 */
 	private Map<String, Long> startSnapshot = new HashMap<>();
 	private Map<String, Long> endSnapshot = new HashMap<>();
-	/**
-	 * Valuable drops, most valuable first.
-	 */
 	private List<JourneyEvent> drops = new ArrayList<>();
 	private List<String> collectionLogItems = new ArrayList<>();
 	private List<String> quests = new ArrayList<>();

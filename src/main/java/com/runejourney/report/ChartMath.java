@@ -1,17 +1,11 @@
 package com.runejourney.report;
 
-/**
- * Axis helpers shared by the Swing and SVG charts.
- */
 public final class ChartMath
 {
 	private ChartMath()
 	{
 	}
 
-	/**
-	 * A "nice" step for about {@code ticks} gridlines up to {@code max}: 1, 2 or 5 times a power of ten.
-	 */
 	public static double niceStep(double max, int ticks)
 	{
 		if (max <= 0)
@@ -31,9 +25,6 @@ public final class ChartMath
 		return Math.max(step, Math.ceil(max / step) * step);
 	}
 
-	/**
-	 * Show every n-th x label so that at most {@code maxLabels} are drawn.
-	 */
 	public static int labelEvery(int count, int maxLabels)
 	{
 		return Math.max(1, (int) Math.ceil(count / (double) Math.max(1, maxLabels)));

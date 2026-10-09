@@ -5,22 +5,13 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import lombok.AllArgsConstructor;
-import lombok.Setter;
+import javax.inject.*;
+import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.ui.DrawManager;
 
-/**
- * Captures the game view for important Journey moments. Captures are delayed a couple of ticks so
- * level-up and drop dialogs are visible, then written off the client thread.
- */
 @Slf4j
 @Singleton
 public class ScreenshotService
@@ -51,9 +42,6 @@ public class ScreenshotService
 		this.store = store;
 	}
 
-	/**
-	 * Schedules a capture and returns the file name it will be saved as.
-	 */
 	public synchronized String request(String profileKey, String title, int currentTick)
 	{
 		String slug = title.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
@@ -88,7 +76,6 @@ public class ScreenshotService
 	{
 		drawManager.requestNextFrameListener(image ->
 		{
-			// The frame buffer is reused by the client, so copy it before handing it to another thread
 			BufferedImage copy = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_RGB);
 			Graphics2D g = copy.createGraphics();
 			g.drawImage(image, 0, 0, null);

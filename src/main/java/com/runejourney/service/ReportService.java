@@ -1,45 +1,23 @@
 package com.runejourney.service;
 
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.GoalType;
-import com.runejourney.model.JourneyEvent;
-import com.runejourney.planner.Counters;
-import com.runejourney.planner.GoalProgress;
-import com.runejourney.planner.Skills;
-import com.runejourney.report.Analytics;
-import com.runejourney.report.Granularity;
-import com.runejourney.report.Metric;
-import com.runejourney.report.SvgCharts;
-import com.runejourney.report.Unit;
+import com.runejourney.model.*;
+import com.runejourney.planner.*;
+import com.runejourney.report.*;
 import com.runejourney.util.Format;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.io.*;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.LinkedHashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import javax.inject.*;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Skill;
 
-/**
- * Builds shareable reports of an account's progress over a period: a standalone HTML page and a
- * short Discord-friendly text summary.
- */
 @Slf4j
 @Singleton
 public class ReportService
@@ -59,9 +37,6 @@ public class ReportService
 		this.store = store;
 	}
 
-	/**
-	 * The metric being explored in the reports window, shown as its own section of the export.
-	 */
 	@lombok.Value
 	public static class Focus
 	{
@@ -90,9 +65,6 @@ public class ReportService
 		private Map<String, Double> minutesPerKill = new LinkedHashMap<>();
 	}
 
-	/**
-	 * Gathers report data. Cheap; can run on any thread.
-	 */
 	public Report build(String title, LocalDate from, LocalDate to)
 	{
 		Report r = new Report();
@@ -115,10 +87,6 @@ public class ReportService
 		}
 		return r;
 	}
-
-	// ------------------------------------------------------------------
-	// Text
-	// ------------------------------------------------------------------
 
 	public String toText(Report r)
 	{
@@ -242,14 +210,6 @@ public class ReportService
 		return Format.date(r.getFrom()) + " – " + Format.date(r.getTo());
 	}
 
-	// ------------------------------------------------------------------
-	// HTML
-	// ------------------------------------------------------------------
-
-	/**
-	 * Renders the report as a standalone HTML page. Reads screenshots from disk, so it must not run
-	 * on the client thread.
-	 */
 	public String toHtml(Report r, boolean includeScreenshots)
 	{
 		RangeSummary s = r.getSummary();
@@ -259,12 +219,10 @@ public class ReportService
 			.append("<title>").append(esc("RuneJourney · " + (r.getPlayer() != null ? r.getPlayer() + " · " : "") + r.getTitle())).append("</title>")
 			.append("<style>").append(CSS).append("</style></head><body><main>");
 
-		// Header
 		h.append("<header><div class=\"brand\">RuneJourney</div><h1>")
 			.append(esc(r.getPlayer() != null ? r.getPlayer() : "Your account")).append("</h1><p class=\"sub\">")
 			.append(esc(r.getTitle())).append(" · ").append(esc(period(r))).append("</p></header>");
 
-		// Headline tiles, with the change from the previous period of the same length
 		h.append("<section class=\"tiles\">");
 		Metric[] headline = {Metric.PLAYTIME, Metric.XP, Metric.LEVELS, Metric.INCOME, Metric.KILLS, Metric.CLUES,
 			Metric.COLLECTION_LOG, Metric.QUESTS, Metric.COMBAT_TASKS, Metric.PERSONAL_BESTS, Metric.PETS, Metric.DEATHS};
@@ -304,9 +262,6 @@ public class ReportService
 		h.append("</div>");
 	}
 
-	/**
-	 * Charts of the main metrics over the period.
-	 */
 	private static void activity(StringBuilder h, Report r)
 	{
 		if (r.getDays().isEmpty())
@@ -370,9 +325,6 @@ public class ReportService
 		h.append("</div></section>");
 	}
 
-	/**
-	 * The metric the player was exploring when they exported.
-	 */
 	private static void focus(StringBuilder h, Report r)
 	{
 		Focus f = r.getFocus();
@@ -701,9 +653,6 @@ public class ReportService
 		h.append("</div></section>");
 	}
 
-	/**
-	 * A screenshot scaled down and encoded as a JPEG data URI, or null if it can't be read.
-	 */
 	private String screenshot(String profileKey, String name)
 	{
 		try

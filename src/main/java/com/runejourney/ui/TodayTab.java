@@ -1,49 +1,23 @@
 package com.runejourney.ui;
 
-import com.runejourney.model.ItemTotal;
-import com.runejourney.model.JourneyEvent;
-import com.runejourney.model.LootSource;
-import com.runejourney.planner.Counters;
-import com.runejourney.planner.GoalPlanner;
-import com.runejourney.planner.Skills;
-import com.runejourney.service.JourneyService;
-import com.runejourney.service.RangeSummary;
-import com.runejourney.service.SessionView;
+import com.runejourney.model.*;
+import com.runejourney.planner.*;
+import com.runejourney.service.*;
 import com.runejourney.util.Format;
 import com.runejourney.wrapped.WrappedPlayer;
-import java.awt.Color;
-import java.awt.BorderLayout;
-import java.awt.GridLayout;
+import java.awt.*;
 import java.time.LocalDate;
 import java.time.temporal.TemporalAdjusters;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
-import javax.swing.JButton;
-import javax.swing.JComboBox;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JMenuItem;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.JTextField;
-import javax.swing.SwingConstants;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 import net.runelite.api.Skill;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.*;
 
-/**
- * "What have I actually accomplished today?" Also doubles as the weekly/monthly recap and
- * "since..." comparison view via the range selector.
- */
 class TodayTab extends RefreshableTab
 {
 	@Getter
@@ -80,13 +54,7 @@ class TodayTab extends RefreshableTab
 	private final JPanel body = Ui.stack(6);
 	private static final java.time.format.DateTimeFormatter MENU_DATE =
 		java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH);
-	/**
-	 * Rows shown in the loot and supplies breakdowns before the rest are summed as "Other".
-	 */
 	private static final int BREAKDOWN_ROWS = 8;
-	/**
-	 * Rows shown before "Show more"; the rest are a click away so the page stays short.
-	 */
 	private static final int HIGHLIGHT_ROWS = 3;
 	private static final int SKILL_ROWS = 5;
 	private static final int BOSS_ROWS = 3;
@@ -95,9 +63,6 @@ class TodayTab extends RefreshableTab
 	private static final String MONEY = "money";
 	private static final String ACTIVITY = "activity";
 	private static final String GOLD_HEX = String.format("#%06X", Ui.GOLD.getRGB() & 0xFFFFFF);
-	/**
-	 * Sections whose "Show more" is open, kept across refreshes.
-	 */
 	private final Set<String> expanded = new HashSet<>();
 	private LocalDate customFrom = LocalDate.now().minusDays(6);
 	private LocalDate customTo = LocalDate.now();
@@ -122,7 +87,6 @@ class TodayTab extends RefreshableTab
 			lastRange = (Range) rangeBox.getSelectedItem();
 			refresh(true);
 		});
-
 
 		JButton charts = Ui.button("Charts", reportWindows::open);
 		charts.setToolTipText("Open the reports window: charts, breakdowns and exports for any metric and period");
@@ -307,9 +271,6 @@ class TodayTab extends RefreshableTab
 		rebuild();
 	}
 
-	/**
-	 * The headline numbers: time played, XP, profit and net worth.
-	 */
 	private JPanel tiles(RangeSummary r, boolean multiDay)
 	{
 		JPanel grid = new JPanel(new GridLayout(0, 2, 4, 4));
@@ -366,9 +327,6 @@ class TodayTab extends RefreshableTab
 			.forEach(e -> body.add(views.event(e, null)));
 	}
 
-	/**
-	 * XP by skill, with any level reached alongside. Skills that levelled always show.
-	 */
 	private void skills(RangeSummary r, boolean multiDay)
 	{
 		List<Map.Entry<String, Long>> rows = r.getSkillXp().entrySet().stream()
@@ -417,9 +375,6 @@ class TodayTab extends RefreshableTab
 		body.add(card);
 	}
 
-	/**
-	 * Where the profit came from: totals first, the breakdown on request.
-	 */
 	private void money(RangeSummary r)
 	{
 		if (r.getLootValue() == 0 && r.getSkillingIncome() == 0 && r.getSuppliesCost() == 0)
@@ -490,9 +445,6 @@ class TodayTab extends RefreshableTab
 		body.add(card);
 	}
 
-	/**
-	 * Kill counts by boss, then counts of everything else done.
-	 */
 	private void activity(RangeSummary r)
 	{
 		List<JPanel> rows = new ArrayList<>();
@@ -532,10 +484,6 @@ class TodayTab extends RefreshableTab
 		body.add(card);
 	}
 
-	/**
-	 * A card headed by its title, with an optional link to show more that stays open across
-	 * refreshes.
-	 */
 	private JPanel section(String title, String key, String moreText)
 	{
 		JPanel card = Ui.card();
@@ -571,9 +519,6 @@ class TodayTab extends RefreshableTab
 		return (value > 0 ? "+" : "") + Format.compact(value) + " gp";
 	}
 
-	/**
-	 * Sums up whatever didn't fit in a breakdown.
-	 */
 	private static void otherRow(JPanel card, long value, int count)
 	{
 		if (count > 0)
@@ -592,9 +537,6 @@ class TodayTab extends RefreshableTab
 		return row;
 	}
 
-	/**
-	 * How often a source paid out and its most valuable items.
-	 */
 	private static String sourceTooltip(LootSource s)
 	{
 		StringBuilder sb = new StringBuilder("<html>").append(Format.number(s.getTimes()))

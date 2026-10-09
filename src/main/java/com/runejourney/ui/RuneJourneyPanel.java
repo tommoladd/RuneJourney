@@ -3,23 +3,14 @@ package com.runejourney.ui;
 import com.runejourney.cloud.SyncManager;
 import com.runejourney.service.JourneyService;
 import com.runejourney.util.Format;
-import java.awt.BorderLayout;
-import java.awt.GridLayout;
+import java.awt.*;
 import java.util.Collections;
 import java.util.List;
 import javax.inject.Inject;
-import javax.swing.JComboBox;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
-import net.runelite.client.ui.PluginPanel;
-import net.runelite.client.ui.components.materialtabs.MaterialTab;
-import net.runelite.client.ui.components.materialtabs.MaterialTabGroup;
+import net.runelite.client.ui.*;
+import net.runelite.client.ui.components.materialtabs.*;
 
 public class RuneJourneyPanel extends PluginPanel
 {
@@ -34,10 +25,6 @@ public class RuneJourneyPanel extends PluginPanel
 	private final JPanel loggedOut;
 	private final JPanel display = new JPanel(new BorderLayout());
 	private final JPanel content = new JPanel(new BorderLayout());
-	/**
-	 * Detected XP rates waiting to be saved, shown above every tab so the chat message's
-	 * "open the side panel" lands on them.
-	 */
 	private final JPanel offers = Ui.stack(4);
 	private final CloudSection cloud;
 	private final SyncManager sync;
@@ -57,7 +44,6 @@ public class RuneJourneyPanel extends PluginPanel
 		this.cloud = cloud;
 		this.sync = sync;
 		views.setOnChange(() -> refresh(true));
-		// Cloud status changes, and other PCs' changes arriving, from the sync thread
 		sync.setOnChange(() -> SwingUtilities.invokeLater(() -> refresh(false)));
 
 		setLayout(new BorderLayout());
@@ -78,7 +64,6 @@ public class RuneJourneyPanel extends PluginPanel
 
 		display.setOpaque(false);
 		MaterialTabGroup tabs = new MaterialTabGroup(display);
-		// Two rows of two so the names fit the sidebar without truncating
 		tabs.setLayout(new GridLayout(2, 2, 4, 4));
 		tabs.setBorder(new EmptyBorder(0, 0, 6, 0));
 		MaterialTab todayTab = tab(tabs, "Today", today);
@@ -129,9 +114,6 @@ public class RuneJourneyPanel extends PluginPanel
 		return tab;
 	}
 
-	/**
-	 * Rebuilds the visible tab. Must be called on the Swing thread.
-	 */
 	public void refresh(boolean force)
 	{
 		boolean ready = service.isReady();
@@ -216,7 +198,6 @@ public class RuneJourneyPanel extends PluginPanel
 		{
 			return;
 		}
-		// The typed text, even if the box hasn't committed it yet
 		Object typed = name.getEditor().getItem();
 		String error = service.saveDetectedMethod(o.getSkill(), typed == null ? null : typed.toString());
 		if (error != null)

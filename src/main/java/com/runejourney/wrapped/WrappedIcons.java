@@ -1,18 +1,8 @@
 package com.runejourney.wrapped;
 
-import java.util.HashMap;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import net.runelite.api.gameval.ItemID;
 
-/**
- * Game art used to illustrate Wrapped slides. Icons are referenced by key:
- * <ul>
- * <li>{@code item:<id>} or {@code item:<id>:<quantity>} for an item sprite (quantity picks stack art)</li>
- * <li>{@code skill:<SKILL>} for a skill icon</li>
- * <li>{@code name:<item name>} for an item looked up by name when the slides are shown</li>
- * </ul>
- */
 public final class WrappedIcons
 {
 	public static final String INTRO = item(ItemID.FIREWORK);
@@ -109,13 +99,9 @@ public final class WrappedIcons
 
 	public static String byName(String name)
 	{
-		// "2 x Dragon bones" -> "Dragon bones"
 		return "name:" + name.replaceFirst("^[\\d,]+ x ", "").replaceFirst("^Pet: ", "");
 	}
 
-	/**
-	 * The boss's pet (or a fitting item), matching variants such as "Theatre of Blood: Hard Mode".
-	 */
 	public static String boss(String boss)
 	{
 		String lower = boss.toLowerCase(Locale.ENGLISH);

@@ -1,21 +1,11 @@
 package com.runejourney.ui;
 
 import com.runejourney.service.OverlayData;
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Graphics2D;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import net.runelite.client.ui.overlay.OverlayPanel;
-import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.components.LineComponent;
-import net.runelite.client.ui.overlay.components.ProgressBarComponent;
-import net.runelite.client.ui.overlay.components.TitleComponent;
+import java.awt.*;
+import javax.inject.*;
+import net.runelite.client.ui.overlay.*;
+import net.runelite.client.ui.overlay.components.*;
 
-/**
- * Optional on-screen summary of the pinned goal, this week's plan and today's progress. All text
- * is prepared on the game tick (see {@link OverlayData}), so drawing only lays out components.
- */
 @Singleton
 public class RuneJourneyOverlay extends OverlayPanel
 {

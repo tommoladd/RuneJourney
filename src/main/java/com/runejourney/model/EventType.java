@@ -1,8 +1,7 @@
 package com.runejourney.model;
 
 import java.awt.Color;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 
 @Getter
 @RequiredArgsConstructor

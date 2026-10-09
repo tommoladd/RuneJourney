@@ -1,68 +1,36 @@
 package com.runejourney.cloud;
 
 import com.runejourney.service.PublicSnapshot;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 import lombok.Data;
-import net.runelite.client.hiscore.HiscoreEndpoint;
-import net.runelite.client.hiscore.HiscoreResult;
-import net.runelite.client.hiscore.HiscoreSkill;
-import net.runelite.client.hiscore.HiscoreSkillType;
-import net.runelite.client.hiscore.Skill;
+import net.runelite.client.hiscore.*;
 
-/**
- * A public account's entry on the official hiscores. It has the kill count of every ranked boss,
- * clue scrolls and minigames, including ones done before RuneJourney was installed, so the page
- * shows the higher of it and what RuneJourney recorded.
- */
 public final class Hiscores
 {
-	/**
-	 * Names the website takes.
-	 */
 	private static final Pattern NAME = Pattern.compile("[\\p{L}\\p{N} '’():&.,!+/-]{1,60}");
 
 	private Hiscores()
 	{
 	}
 
-	/**
-	 * Looks a player up; {@link net.runelite.client.hiscore.HiscoreClient#lookupAsync} in game.
-	 * Completes with null if they aren't on the hiscores.
-	 */
 	public interface Lookup
 	{
 		CompletableFuture<HiscoreResult> lookup(String name, HiscoreEndpoint endpoint);
 	}
 
-	/**
-	 * What a lookup found, kept with the account's sync state.
-	 */
 	@Data
 	public static class Entry
 	{
-		/**
-		 * The name looked up.
-		 */
 		private String name;
 		private long fetchedAt;
 		private Map<String, Integer> bosses = new LinkedHashMap<>();
 		private Map<String, Integer> clues = new LinkedHashMap<>();
 		private Map<String, Integer> activities = new LinkedHashMap<>();
-		/**
-		 * "Collections logged": unique collection log items.
-		 */
 		private int collections;
 	}
 
-	/**
-	 * The hiscores for a public page's world (game mode). Ironmen are on the main ones too.
-	 */
 	static HiscoreEndpoint endpoint(String world)
 	{
 		switch (world == null ? "main" : world)
@@ -90,7 +58,6 @@ public final class Hiscores
 		for (Map.Entry<HiscoreSkill, Skill> s : result.getSkills().entrySet())
 		{
 			HiscoreSkill skill = s.getKey();
-			// Unranked is -1
 			int score = s.getValue() == null ? -1 : s.getValue().getLevel();
 			if (score <= 0 || skill.getType() == null)
 			{
@@ -121,9 +88,6 @@ public final class Hiscores
 		return e;
 	}
 
-	/**
-	 * Adds what the hiscores know to a page: for each boss and clue tier the higher count wins.
-	 */
 	static void merge(PublicSnapshot page, Entry hiscores)
 	{
 		if (hiscores == null)
@@ -148,9 +112,6 @@ public final class Hiscores
 		}
 	}
 
-	/**
-	 * Both sets of counts, matched by name whatever its punctuation; the hiscores' name is kept.
-	 */
 	private static Map<String, Integer> combine(Map<String, Integer> recorded, Map<String, Integer> ranked)
 	{
 		Map<String, Integer> out = new LinkedHashMap<>(recorded);
@@ -182,7 +143,6 @@ public final class Hiscores
 	static String key(String name)
 	{
 		String k = name.toLowerCase(Locale.ROOT);
-		// "The Gauntlet" is "Gauntlet" in chat
 		if (k.startsWith("the "))
 		{
 			k = k.substring(4);

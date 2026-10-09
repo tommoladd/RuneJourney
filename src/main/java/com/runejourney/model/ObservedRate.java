@@ -2,9 +2,6 @@ package com.runejourney.model;
 
 import lombok.Data;
 
-/**
- * An amount observed over active time, such as boss kills and the time spent on them.
- */
 @Data
 public class ObservedRate
 {

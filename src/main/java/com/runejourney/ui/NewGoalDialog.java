@@ -1,44 +1,22 @@
 package com.runejourney.ui;
 
-import com.runejourney.model.Goal;
-import com.runejourney.model.GoalItem;
-import com.runejourney.model.GoalType;
-import com.runejourney.planner.Counters;
-import com.runejourney.planner.GoalPlanner;
-import com.runejourney.planner.Skills;
+import com.runejourney.model.*;
+import com.runejourney.planner.*;
 import com.runejourney.util.Format;
-import java.awt.Component;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
+import java.awt.*;
 import java.text.ParseException;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComboBox;
-import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JTextField;
+import javax.swing.*;
 import lombok.Value;
-import net.runelite.api.Experience;
-import net.runelite.api.Skill;
+import net.runelite.api.*;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.util.QuantityFormatter;
 
-/**
- * Create or edit a goal of any type.
- */
 final class NewGoalDialog
 {
-	/**
-	 * What the dialog needs to know about the account.
-	 */
 	@Value
 	static class Context
 	{
@@ -47,13 +25,7 @@ final class NewGoalDialog
 		Map<String, Long> counters;
 		ItemIndex itemIndex;
 		ItemManager itemManager;
-		/**
-		 * Whether the bank has been opened, so its coins are included in the cash stack.
-		 */
 		boolean bankCashKnown;
-		/**
-		 * Collection log pages the player has opened: name to [obtained, total].
-		 */
 		Map<String, int[]> clogPages;
 	}
 
@@ -61,9 +33,6 @@ final class NewGoalDialog
 	static class Result
 	{
 		Goal goal;
-		/**
-		 * The player's current CA points if they entered them, to calibrate tracking.
-		 */
 		Long combatAchievementPoints;
 	}
 
@@ -299,7 +268,6 @@ final class NewGoalDialog
 
 	private void fill(Goal g)
 	{
-		// Leave auto-generated names blank so they follow target changes
 		name.setText(g.getName().equals(defaultName(g)) ? "" : g.getName());
 		date.setText(g.getTargetDate() == null ? "" : g.getTargetDate());
 		hours.setText(g.getHoursPerWeek() > 0 ? String.valueOf(g.getHoursPerWeek()) : "");
@@ -468,9 +436,6 @@ final class NewGoalDialog
 		refit.run();
 	}
 
-	/**
-	 * Shows or hides fields together with their row labels, so hidden rows leave no gaps.
-	 */
 	private void show(boolean visible, JComponent... components)
 	{
 		for (JComponent c : components)
@@ -610,7 +575,6 @@ final class NewGoalDialog
 				g.setQuantity((int) Math.min(Integer.MAX_VALUE, qty));
 				g.setCounter(Counters.CASH);
 				g.setTargetCount(each * qty);
-				// Prices are only known once the item index has loaded
 				g.setFixedPrice(ctx.getItemIndex().isReady()
 					? each != ctx.getItemIndex().price(item.getId())
 					: existing != null && existing.isFixedPrice());
@@ -676,10 +640,6 @@ final class NewGoalDialog
 		return new Result(g, ca);
 	}
 
-	/**
-	 * The name a goal gets when the player doesn't choose one. For counter goals being edited this
-	 * compares against the "N more" form.
-	 */
 	private static String defaultName(Goal g)
 	{
 		switch (g.getType())

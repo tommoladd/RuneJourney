@@ -1,13 +1,8 @@
 package com.runejourney.ui;
 
-import javax.inject.Inject;
-import javax.inject.Provider;
-import javax.inject.Singleton;
+import javax.inject.*;
 import javax.swing.SwingUtilities;
 
-/**
- * Opens the screenshot gallery, reusing it if it's already open.
- */
 @Singleton
 public class ScreenshotWindowManager
 {
@@ -20,9 +15,6 @@ public class ScreenshotWindowManager
 		this.provider = provider;
 	}
 
-	/**
-	 * Must be called on the Swing thread.
-	 */
 	public void open()
 	{
 		if (window == null || !window.isDisplayable())

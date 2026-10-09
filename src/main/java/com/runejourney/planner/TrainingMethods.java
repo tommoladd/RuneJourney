@@ -2,24 +2,13 @@ package com.runejourney.planner;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import java.util.*;
+import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Skill;
 
-/**
- * Known training methods per skill, loaded from the bundled training_methods.json.
- */
 @Slf4j
 @Singleton
 public class TrainingMethods
@@ -49,7 +38,6 @@ public class TrainingMethods
 			log.warn("Unable to load RuneJourney training methods", e);
 		}
 
-		// Hitpoints is trained alongside combat; use a single flat estimate
 		for (Skill s : Skills.ALL)
 		{
 			if (!methods.containsKey(s))
@@ -78,10 +66,6 @@ public class TrainingMethods
 		return null;
 	}
 
-	/**
-	 * The method matching the player's preferred intensity: fastest, slowest, or the middle option,
-	 * judged by the rate at their current XP.
-	 */
 	public TrainingMethod defaultFor(Skill skill, Intensity intensity, long xp)
 	{
 		List<TrainingMethod> sorted = new ArrayList<>(forSkill(skill));

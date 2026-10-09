@@ -1,30 +1,15 @@
 package com.runejourney.sync;
 
-import com.google.gson.ExclusionStrategy;
-import com.google.gson.FieldAttributes;
-import com.google.gson.Gson;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.ProfileData;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import com.google.gson.*;
+import com.runejourney.model.*;
+import java.util.*;
 
-/**
- * Helpers for combining records as JSON trees, so a rule can apply to a field by name.
- */
 public final class Trees
 {
 	private Trees()
 	{
 	}
 
-	/**
-	 * A Gson that leaves out a day's or profile's sync parts, so serializing one doesn't copy every
-	 * PC's part along with it.
-	 */
 	public static Gson withoutSync(Gson gson)
 	{
 		return gson.newBuilder().addSerializationExclusionStrategy(new ExclusionStrategy()
@@ -44,10 +29,6 @@ public final class Trees
 		}).create();
 	}
 
-	/**
-	 * Adds (or with a sign of -1, subtracts) every number in {@code from} to the same place in
-	 * {@code into}, going into nested objects. Anything that isn't a number or an object is ignored.
-	 */
 	static void add(JsonObject into, JsonObject from, int sign)
 	{
 		for (Map.Entry<String, JsonElement> e : from.entrySet())
@@ -68,9 +49,6 @@ public final class Trees
 		}
 	}
 
-	/**
-	 * Drops zeros and empty objects, so a count that came to nothing leaves no trace.
-	 */
 	static void prune(JsonObject o)
 	{
 		List<String> empty = new ArrayList<>();
@@ -111,9 +89,6 @@ public final class Trees
 		return e != null && e.isJsonPrimitive() ? e.getAsString() : null;
 	}
 
-	/**
-	 * The object at a key, or an empty one.
-	 */
 	static JsonObject object(JsonObject o, String key)
 	{
 		JsonElement e = o == null ? null : o.get(key);
@@ -136,9 +111,6 @@ public final class Trees
 		}
 	}
 
-	/**
-	 * Just the given keys.
-	 */
 	static JsonObject only(JsonObject from, Collection<String> keys)
 	{
 		JsonObject out = new JsonObject();

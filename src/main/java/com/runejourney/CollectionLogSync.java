@@ -1,78 +1,36 @@
 package com.runejourney;
 
-import com.runejourney.cloud.CloudStatus;
-import com.runejourney.cloud.SyncManager;
+import com.runejourney.cloud.*;
 import com.runejourney.model.ClogItem;
 import com.runejourney.service.JourneyService;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import java.util.*;
+import javax.inject.*;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.Client;
-import net.runelite.api.EnumComposition;
-import net.runelite.api.MenuAction;
-import net.runelite.api.StructComposition;
-import net.runelite.api.events.ScriptPostFired;
-import net.runelite.api.events.ScriptPreFired;
+import net.runelite.api.*;
+import net.runelite.api.events.*;
 import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.widgets.JavaScriptCallback;
-import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetType;
+import net.runelite.api.widgets.*;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.game.ItemManager;
 
-/**
- * "RuneJourney" in the collection log's menu while cloud sync is connected. It opens the log's
- * search, which makes the game draw every obtained item, and records them with every page of the
- * log: for the public page, and the plugin's item goals. WikiSync and TempleOSRS sync the same way.
- */
 @Slf4j
 @Singleton
 class CollectionLogSync
 {
-	// Not named by RuneLite
-	/**
-	 * Draws the collection log, and its menu; RuneJourney is added to the menu after it runs.
-	 */
 	private static final int SCRIPT_SETUP = 7797;
-	/**
-	 * Runs once for each obtained item as the log draws: args[1] is the item ID, args[2] how many.
-	 */
 	private static final int SCRIPT_DRAW_ITEM = 4100;
-	/**
-	 * Sets the log up afresh, which closes its search again.
-	 */
 	private static final int SCRIPT_SEARCH_CLOSE = 2240;
-	/**
-	 * The log's tabs; each tab's name and enum of pages; each page's name and enum of items.
-	 */
 	private static final int ENUM_TABS = 2102;
 	private static final int PARAM_TAB_NAME = 682;
 	private static final int PARAM_TAB_PAGES = 683;
 	private static final int PARAM_PAGE_NAME = 689;
 	private static final int PARAM_PAGE_ITEMS = 690;
-	/**
-	 * Items the log lists under one ID but draws under another.
-	 */
 	private static final int ENUM_REPLACEMENTS = 3721;
 
-	/**
-	 * Done once no item has been drawn for this many ticks, or after the most.
-	 */
 	private static final int QUIET_TICKS = 2;
 	private static final int MAX_TICKS = 10;
-	/**
-	 * The game's "click on the menu's frame" script: closes the log's menu.
-	 */
 	private static final int SCRIPT_MENU_CLOSE = 7813;
 	private static final String MENU_TEXT = "RuneJourney";
-	/**
-	 * The menu's own colours.
-	 */
 	private static final int MENU_COLOUR = 0xff981f;
 	private static final int MENU_COLOUR_HOVERED = 0xffffff;
 
@@ -103,7 +61,6 @@ class CollectionLogSync
 	{
 		if (event.getScriptId() == SCRIPT_SETUP && allowed())
 		{
-			// After the game has drawn the menu
 			clientThread.invokeLater(this::addMenuOption);
 		}
 	}
@@ -149,9 +106,6 @@ class CollectionLogSync
 		captured.clear();
 	}
 
-	/**
-	 * Only while the account is saved to the cloud.
-	 */
 	private boolean allowed()
 	{
 		CloudStatus status = sync.status();
@@ -169,14 +123,10 @@ class CollectionLogSync
 		ticksCapturing = 0;
 		ticksSinceItem = 0;
 		service.say("Syncing your collection log with RuneJourney...");
-		// Opening the search draws every obtained item; then it's closed again
 		client.menuAction(-1, InterfaceID.Collection.SEARCH_TOGGLE, MenuAction.CC_OP, 1, -1, "Search", null);
 		client.runScript(SCRIPT_SEARCH_CLOSE);
 	}
 
-	/**
-	 * Every page of the log from the game, with what was drawn as obtained.
-	 */
 	private void finish()
 	{
 		if (captured.isEmpty())
@@ -226,10 +176,6 @@ class CollectionLogSync
 		sync.syncNow();
 	}
 
-	/**
-	 * Adds "RuneJourney" to the log's menu (under "View Log" and "Overview"), styled like them. The
-	 * game redraws the menu when the log opens, so it's only added if it isn't there already.
-	 */
 	private void addMenuOption()
 	{
 		Widget frame = client.getWidget(InterfaceID.Collection.BURGER_MENU_FRAME);
@@ -289,7 +235,6 @@ class CollectionLogSync
 			.setPos(last.getOriginalX(), y)
 			.setSize(last.getOriginalWidth(), last.getOriginalHeight());
 
-		// As much room below the last option as above the first; the frame's border stretches
 		frame.setOriginalHeight(y + last.getOriginalHeight() + first.getOriginalY());
 		frame.revalidate();
 		for (Widget w : frame.getDynamicChildren())

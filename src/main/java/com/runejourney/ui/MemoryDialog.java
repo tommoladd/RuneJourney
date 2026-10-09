@@ -1,48 +1,22 @@
 package com.runejourney.ui;
 
-import com.runejourney.model.EventType;
-import com.runejourney.model.GoalItem;
-import com.runejourney.model.JourneyEvent;
-import com.runejourney.planner.Counters;
-import com.runejourney.planner.GoalPlanner;
-import com.runejourney.planner.Skills;
+import com.runejourney.model.*;
+import com.runejourney.planner.*;
 import com.runejourney.service.JourneyService;
 import com.runejourney.util.Format;
-import java.awt.Component;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
+import java.awt.*;
 import java.text.ParseException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneId;
+import java.time.*;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComboBox;
-import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JTextField;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.Value;
-import net.runelite.api.Experience;
-import net.runelite.api.Quest;
-import net.runelite.api.Skill;
+import javax.swing.*;
+import lombok.*;
+import net.runelite.api.*;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.util.QuantityFormatter;
 
-/**
- * Lets the player add their own Journey entry: a drop, kill, pet, level and so on, on any date.
- */
 final class MemoryDialog
 {
 	@Getter
@@ -178,9 +152,6 @@ final class MemoryDialog
 		rowLabels.put(field, label);
 	}
 
-	/**
-	 * Shows or hides fields together with their row labels, so hidden rows leave no gaps.
-	 */
 	private void show(boolean visible, JComponent... components)
 	{
 		for (JComponent c : components)
@@ -265,9 +236,6 @@ final class MemoryDialog
 		value.setText(total > 0 ? Format.number(total) : "");
 	}
 
-	/**
-	 * Shows the dialog. Returns the memories to add, or null if cancelled.
-	 */
 	static Result show(Component parent, ItemIndex itemIndex, ItemManager itemManager, List<String> bosses)
 	{
 		MemoryDialog d = new MemoryDialog(itemIndex, itemManager, bosses);

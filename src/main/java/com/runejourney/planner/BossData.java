@@ -2,23 +2,13 @@ package com.runejourney.planner;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Locale;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import java.util.*;
+import javax.inject.*;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 
-/**
- * Typical minutes per kill for bosses, raids and minigames (including banking), and for clue scrolls.
- * Names match the kill count chat messages.
- */
 @Slf4j
 @Singleton
 public class BossData
@@ -54,10 +44,6 @@ public class BossData
 		return Collections.unmodifiableList(bosses);
 	}
 
-	/**
-	 * Typical minutes per kill, or -1 if unknown. Variants such as "Theatre of Blood: Hard Mode" fall
-	 * back to their base activity when not listed.
-	 */
 	public double minutesPerKill(String name)
 	{
 		if (name == null)
@@ -81,9 +67,6 @@ public class BossData
 		return best == null ? -1 : best.getMinutes();
 	}
 
-	/**
-	 * Typical minutes to complete one clue of the tier, including getting it.
-	 */
 	public static double minutesPerClue(String tier)
 	{
 		switch (tier)

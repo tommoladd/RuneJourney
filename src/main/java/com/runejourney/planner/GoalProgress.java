@@ -2,16 +2,10 @@ package com.runejourney.planner;
 
 import com.runejourney.model.Goal;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-import lombok.Data;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import java.util.*;
+import lombok.*;
 import net.runelite.api.Skill;
 
-/**
- * A computed, read-only view of a goal's progress and plan.
- */
 @Data
 public class GoalProgress
 {
@@ -77,9 +71,6 @@ public class GoalProgress
 	private int availableHoursPerWeek;
 	private Status status;
 	private LocalDate projectedCompletion;
-	/**
-	 * True when the projection is based on progress since the goal was created, rather than planned hours.
-	 */
 	private boolean projectionFromPace;
 
 	private List<WeekRow> week = new ArrayList<>();
@@ -87,20 +78,15 @@ public class GoalProgress
 	private long weekAchieved;
 	private double weekHours;
 
-	// Counter goals (kill count, clues, points...)
 	private String unit;
 	private long countCurrent;
 	private long countTarget;
 	private long countRemaining;
 	private long countGained;
-	/**
-	 * Units needed per week to hit the target date.
-	 */
 	private double requiredPerWeek;
 	private long countWeekTarget;
 	private long countWeekAchieved;
 
-	// Item goals
 	private int itemsObtained;
 	private int itemsTotal;
 }

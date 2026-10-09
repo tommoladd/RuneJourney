@@ -2,69 +2,27 @@ package com.runejourney.cloud;
 
 import com.google.gson.Gson;
 import com.runejourney.RuneJourneyConfig;
-import com.runejourney.model.DaySlice;
-import com.runejourney.model.ProfileSlice;
-import com.runejourney.service.JourneyService;
-import com.runejourney.service.JourneyStore;
-import com.runejourney.service.PublicAchievements;
-import com.runejourney.service.PublicCollectionLog;
-import com.runejourney.service.PublicSnapshot;
-import com.runejourney.sync.Envelope;
-import com.runejourney.sync.Hlc;
+import com.runejourney.model.*;
+import com.runejourney.service.*;
+import com.runejourney.sync.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
-import javax.inject.Inject;
-import javax.inject.Named;
-import javax.inject.Singleton;
-import lombok.Setter;
-import lombok.Value;
+import javax.inject.*;
+import lombok.*;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.hiscore.HiscoreClient;
-import net.runelite.client.hiscore.HiscoreResult;
+import net.runelite.client.hiscore.*;
 
-/**
- * Keeps each account's journey in step with the RuneJourney cloud.
- * <ul>
- *   <li>Connecting: the player pastes a key made on the website.</li>
- *   <li>Each account is saved to the cloud only once the player agrees, once per PC.</li>
- *   <li>Each sync pulls other PCs' changes, then pushes this PC's own parts of whatever changed.
- *       Logging in waits (briefly) for the pull, so XP another PC already recorded isn't counted again.</li>
- *   <li>Uploads wait in a persistent outbox until committed, and a commit whose reply was lost is
- *       sent again with the same change ID, so nothing is lost or counted twice.</li>
- * </ul>
- * All state is confined to the plugin's executor; network replies hop back onto it.
- */
 @Slf4j
 @Singleton
 public class SyncManager
 {
-	/**
-	 * The RuneJourney website. Only a developer (RuneLite in developer mode) can point the plugin at
-	 * another server, from the side panel.
-	 */
 	public static final String SERVER = "https://runejourney.org";
 	static final String JOURNEY = "journey";
-	/**
-	 * The public page section that shows the character model.
-	 */
 	static final String CHARACTER = "character";
 	private static final long HOLD_MILLIS = 8_000;
 	private static final long PLAYING_EVERY = 2 * 60_000L;
@@ -72,29 +30,11 @@ public class SyncManager
 	private static final long MIN_BACKOFF = 60_000L;
 	private static final long MAX_BACKOFF = 15 * 60_000L;
 	private static final int MAX_FILES = 50;
-	/**
-	 * While the account is played, its public page is published at most this often.
-	 */
 	private static final long PUBLISH_EVERY = 10 * 60_000L;
-	/**
-	 * Under the website's 256 KB request limit.
-	 */
 	private static final int MAX_PAGE_BYTES = 240_000;
-	/**
-	 * How often a public account is looked up on the hiscores.
-	 */
 	private static final long HISCORES_EVERY = 3 * 60 * 60_000L;
-	/**
-	 * After a failed lookup, how long until the next try.
-	 */
 	private static final long HISCORES_RETRY = 30 * 60_000L;
-	/**
-	 * How often "Sync now" can look the account up again.
-	 */
 	private static final long HISCORES_ASKED_EVERY = 5 * 60_000L;
-	/**
-	 * The public page section with quests and the collection log.
-	 */
 	static final String COLLECTION = "collection";
 	private static final int MAX_DOWNLOAD = 6 * 1024 * 1024;
 	private static final int MAX_DOCUMENT = 16 * 1024 * 1024;
@@ -108,21 +48,14 @@ public class SyncManager
 	private final Hiscores.Lookup hiscores;
 	private final SyncLog syncLog;
 
-	/**
-	 * Called when the status changes, from any thread.
-	 */
 	@Setter
 	private Runnable onChange;
-	/**
-	 * Saves the loaded account's files.
-	 */
 	@Setter
 	private Runnable saver;
 
 	private Executor executor;
 	private ScheduledFuture<?> timer;
 
-	// Confined to the executor
 	private CloudCredentials creds = new CloudCredentials();
 	private byte[] dataKey;
 	private final Map<String, SyncState> states = new HashMap<>();
@@ -130,21 +63,9 @@ public class SyncManager
 	private final Map<String, Map<String, String>> outboxes = new HashMap<>();
 	private final Set<String> resolved = new HashSet<>();
 	private final Map<String, Boolean> savedElsewhere = new HashMap<>();
-	/**
-	 * Account to the character model captured for its public page, until it's sent.
-	 */
 	private final Map<String, Captured> characters = new HashMap<>();
-	/**
-	 * Looks the website turned down this session, so they aren't captured again.
-	 */
 	private final Set<String> refusedLooks = new HashSet<>();
-	/**
-	 * Collection logs the website turned down this session, so they aren't sent again.
-	 */
 	private final Set<String> refusedLogs = new HashSet<>();
-	/**
-	 * Quests and combat tasks the website turned down this session, so they aren't sent again.
-	 */
 	private final Set<String> refusedAchievements = new HashSet<>();
 	private volatile String active;
 	private boolean loggedIn;
@@ -153,9 +74,6 @@ public class SyncManager
 	private long lastCycle;
 	private long backoff;
 	private long backoffUntil;
-	/**
-	 * "Sync now" was pressed: the next sync publishes the public page whenever it last went.
-	 */
 	private boolean publishNow;
 	private boolean connecting;
 	private boolean updateNeeded;
@@ -165,10 +83,6 @@ public class SyncManager
 	private volatile boolean ready;
 	private volatile String holdKey;
 	private volatile long holdUntil;
-	/**
-	 * Read on the client thread: the loaded account while its public page shows its character, and
-	 * the looks that needn't be captured (on the page, waiting to be sent, or turned down).
-	 */
 	private volatile String characterFor;
 	private volatile Set<String> characterLooks = Collections.emptySet();
 
@@ -179,9 +93,6 @@ public class SyncManager
 		this(service, api, (CloudFiles) files, config, gson, developerMode, hiscoreClient::lookupAsync, syncLog);
 	}
 
-	/**
-	 * For tests: no one is on the hiscores.
-	 */
 	SyncManager(JourneyService service, CloudApi api, CloudFiles files, RuneJourneyConfig config, Gson gson, boolean developerMode)
 	{
 		this(service, api, files, config, gson, developerMode, (name, endpoint) -> CompletableFuture.completedFuture(null));
@@ -206,9 +117,6 @@ public class SyncManager
 		this.syncLog = syncLog;
 	}
 
-	/**
-	 * Notes what sync did in the sync log (and RuneLite's debug log), with {} for each argument.
-	 */
 	private void note(String format, Object... args)
 	{
 		log.debug("RuneJourney cloud: " + format, args);
@@ -221,17 +129,12 @@ public class SyncManager
 			at = i + 2;
 		}
 		out.append(format.substring(at));
-		// Anything left over, such as an exception
 		for (; arg < args.length; arg++)
 		{
 			out.append(": ").append(args[arg]);
 		}
 		syncLog.write("%s", out);
 	}
-
-	// ------------------------------------------------------------------
-	// Lifecycle (any thread)
-	// ------------------------------------------------------------------
 
 	public void start(ScheduledExecutorService executor)
 	{
@@ -240,9 +143,6 @@ public class SyncManager
 		timer = executor.scheduleWithFixedDelay(() -> runSafely(this::tick), 30, 30, TimeUnit.SECONDS);
 	}
 
-	/**
-	 * For tests: runs everything on the given executor, with no timer.
-	 */
 	void start(Executor executor)
 	{
 		this.executor = executor;
@@ -267,18 +167,11 @@ public class SyncManager
 		return status;
 	}
 
-	/**
-	 * Whether logging in should wait before counting XP, because other PCs' records are still being
-	 * fetched.
-	 */
 	public boolean isHolding(String key)
 	{
 		return key != null && key.equals(holdKey) && System.currentTimeMillis() < holdUntil;
 	}
 
-	/**
-	 * An account logged in, after its files were loaded (or checked) in this window.
-	 */
 	public void onLogin(String key)
 	{
 		if (ready && config.cloudSync())
@@ -289,11 +182,6 @@ public class SyncManager
 		submit(() -> loginSync(key));
 	}
 
-	/**
-	 * The account logged out: uploads what's left.
-	 *
-	 * @return completes when done (successfully or not)
-	 */
 	public CompletableFuture<Void> onLogout(String key)
 	{
 		CompletableFuture<Void> done = new CompletableFuture<>();
@@ -310,9 +198,6 @@ public class SyncManager
 		return done;
 	}
 
-	/**
-	 * RuneLite is closing: a last, best-effort upload.
-	 */
 	public Future<?> onExit()
 	{
 		String key = active;
@@ -335,18 +220,11 @@ public class SyncManager
 		});
 	}
 
-	/**
-	 * Whether to capture the character, on the client thread: the account's public page shows it,
-	 * and in a different look.
-	 */
 	public boolean wantsCharacter(String key, String look)
 	{
 		return key != null && key.equals(characterFor) && !characterLooks.contains(look);
 	}
 
-	/**
-	 * The character was captured for the account's public page: it's sent with the next sync.
-	 */
 	public void setCharacter(String key, String look, CharacterModel model)
 	{
 		Set<String> looks = new HashSet<>(characterLooks);
@@ -359,19 +237,11 @@ public class SyncManager
 			publish();
 			if (usable() && isLinked(key) && resolved.contains(key))
 			{
-				// Sent now, rather than with the next sync
 				queue(() -> withLock(key, key.equals(service.getProfileKey()), () -> publishCharacter(key, state(key))));
 			}
 		});
 	}
 
-	// ------------------------------------------------------------------
-	// Actions from the side panel (any thread)
-	// ------------------------------------------------------------------
-
-	/**
-	 * Connects this PC with a key made on the website. The PC is named after the key.
-	 */
 	public void connect(String apiKey)
 	{
 		submit(() -> connectNow(apiKey.trim()));
@@ -387,7 +257,6 @@ public class SyncManager
 			}
 			api.disconnect(session()).whenCompleteAsync((v, e) ->
 			{
-				// Forget the key here even if the server couldn't be reached
 				creds.setApiKey(null);
 				creds.setDataKey(null);
 				creds.setUserUuid(null);
@@ -403,9 +272,6 @@ public class SyncManager
 		});
 	}
 
-	/**
-	 * The player's answer to "Save this account to the cloud?".
-	 */
 	public void consent(boolean save)
 	{
 		submit(() ->
@@ -427,12 +293,6 @@ public class SyncManager
 		});
 	}
 
-	/**
-	 * The player's choice when this PC and the cloud both have a journey for the account.
-	 *
-	 * @param useCloud replace this PC's journey (backed up first) with the cloud's, rather than
-	 *                 combining both
-	 */
 	public void choose(boolean useCloud)
 	{
 		submit(() ->
@@ -454,7 +314,6 @@ public class SyncManager
 					service.link(key, service.getGeneration(), me(), clock(key), false);
 					return startSyncing(key, st, false);
 				}
-				// Unsaved changes are written first (the executor runs tasks in order), then the backup is taken
 				save();
 				return CompletableFuture.runAsync(() ->
 				{
@@ -490,9 +349,6 @@ public class SyncManager
 		return syncAccount(key);
 	}
 
-	/**
-	 * The side panel was opened. At the login screen that's a good moment to catch up with other PCs.
-	 */
 	public void onPanelOpened()
 	{
 		submit(() ->
@@ -505,15 +361,10 @@ public class SyncManager
 		});
 	}
 
-	/**
-	 * "Sync now", or a collection log just synced from the game. If a sync is running, another
-	 * follows it.
-	 */
 	public void syncNow()
 	{
 		submit(() ->
 		{
-			// The player asked: the public page goes too, however recently it went
 			publishNow = true;
 			backoffUntil = 0;
 			lastCycle = 0;
@@ -532,9 +383,6 @@ public class SyncManager
 		});
 	}
 
-	/**
-	 * For tests: a sync as the timer runs it.
-	 */
 	void cycle()
 	{
 		submit(() ->
@@ -544,10 +392,6 @@ public class SyncManager
 			tick();
 		});
 	}
-
-	// ------------------------------------------------------------------
-	// Connecting
-	// ------------------------------------------------------------------
 
 	private void loadCredentials()
 	{
@@ -583,7 +427,6 @@ public class SyncManager
 			byte[] key = CloudCrypto.decodeKey(me.getDataKey().getKey());
 			if (creds.getUserUuid() != null && !creds.getUserUuid().equals(me.getUser().getUuid()))
 			{
-				// A different Discord account: every account here starts again with it
 				states.clear();
 				resolved.clear();
 			}
@@ -625,7 +468,6 @@ public class SyncManager
 		return attempt(() -> api.registerDevice(session())).thenAcceptAsync(reply ->
 		{
 			creds.setRegistered(true);
-			// Named after the key it connected with
 			if (reply.getDevice() != null && reply.getDevice().getName() != null)
 			{
 				creds.setDeviceName(reply.getDevice().getName());
@@ -634,10 +476,6 @@ public class SyncManager
 			publish();
 		}, executor);
 	}
-
-	// ------------------------------------------------------------------
-	// Accounts
-	// ------------------------------------------------------------------
 
 	private void loginSync(String key)
 	{
@@ -648,18 +486,12 @@ public class SyncManager
 		publish();
 	}
 
-	/**
-	 * Runs in the queue, so nothing else is working on the account.
-	 */
 	private CompletableFuture<Void> login(String key)
 	{
-		// Without the account's lock another window has it, and this one doesn't save or sync it
 		if (!usable() || !files.isLocked(key))
 		{
 			return CompletableFuture.completedFuture(null);
 		}
-		// Another window may have played the account (or become a new device) since this one last
-		// looked at its files
 		reloadCredentials();
 		invalidate(key);
 		return withLock(key, true, () ->
@@ -686,7 +518,6 @@ public class SyncManager
 			}
 			if (service.needsRestore(key))
 			{
-				// profile.json was lost: this PC's copy comes back from the cloud before anything is uploaded
 				service.link(key, gen, me(), Hlc.zero(), false);
 				st.setCursor(0);
 				st.setRestoring(true);
@@ -719,10 +550,6 @@ public class SyncManager
 		publish();
 	}
 
-	/**
-	 * Saves the account to the cloud from this PC, for the first time or again after its cloud data
-	 * was deleted. Everything this PC has is uploaded. Runs in the queue, holding the account's lock.
-	 */
 	private CompletableFuture<Void> link(String key, SyncState st)
 	{
 		int gen = service.getGeneration();
@@ -764,14 +591,9 @@ public class SyncManager
 			}, executor);
 	}
 
-	/**
-	 * This RuneLite folder was copied from another PC that still uses its device ID: carries on as a
-	 * new device.
-	 */
 	private void fork(String key, SyncState st)
 	{
 		String old = me();
-		// Another window on this PC may have become the new device already
 		reloadCredentials();
 		if (old.equals(me()))
 		{
@@ -783,13 +605,9 @@ public class SyncManager
 			note("This RuneLite folder was copied from another PC, so it now syncs as a new device");
 		}
 		forkAccount(key, st, old);
-		// Sync again soon under the new ID
 		lastCycle = 0;
 	}
 
-	/**
-	 * Picks up a new device ID another RuneLite window on this PC has taken.
-	 */
 	private void reloadCredentials()
 	{
 		try
@@ -808,10 +626,6 @@ public class SyncManager
 		}
 	}
 
-	/**
-	 * The cloud copy of an account was deleted (on the website): stops syncing it until the player
-	 * says to save it again.
-	 */
 	private void forget(String key, SyncState st)
 	{
 		st.setLinked(false);
@@ -835,9 +649,6 @@ public class SyncManager
 		return cause instanceof CloudException && ((CloudException) cause).is("profile_not_found");
 	}
 
-	/**
-	 * Forgets what's cached about an account, so its files are read again.
-	 */
 	private void invalidate(String key)
 	{
 		states.remove(key);
@@ -846,11 +657,6 @@ public class SyncManager
 		resolved.remove(key);
 	}
 
-	/**
-	 * Runs work on an account while holding its lock, so no other RuneLite window works on it at the
-	 * same time. If this window didn't already hold it, the account's files are read again first;
-	 * the loaded account is skipped if another window changed it (it's reloaded at the next login).
-	 */
 	private CompletableFuture<Void> withLock(String key, boolean loaded, java.util.function.Supplier<CompletableFuture<Void>> work)
 	{
 		boolean fresh = !files.isLocked(key);
@@ -881,7 +687,6 @@ public class SyncManager
 
 	private void forkAccount(String key, SyncState st, String oldId)
 	{
-		// The account's parts move to the new ID when it's next loaded, if it isn't now
 		if (key.equals(service.getProfileKey()) && service.forkDevice(key, service.getGeneration(), oldId))
 		{
 			st.setDeviceId(me());
@@ -895,10 +700,6 @@ public class SyncManager
 		saveState(key);
 		save();
 	}
-
-	// ------------------------------------------------------------------
-	// Syncing
-	// ------------------------------------------------------------------
 
 	private void tick()
 	{
@@ -916,7 +717,6 @@ public class SyncManager
 		boolean playing = loggedIn;
 		queue(() ->
 		{
-			// While logged in, only the window playing the account (holding its lock) syncs it
 			CompletableFuture<Void> work = key != null && isLinked(key) && (!playing || files.isLocked(key))
 				? syncAccount(key)
 				: CompletableFuture.completedFuture(null);
@@ -931,9 +731,6 @@ public class SyncManager
 		});
 	}
 
-	/**
-	 * Runs one piece of work after any already queued, so syncs never overlap.
-	 */
 	private CompletableFuture<Void> queue(java.util.function.Supplier<CompletableFuture<Void>> work)
 	{
 		CompletableFuture<Void> next = running.handle((v, e) -> (Void) null).thenComposeAsync(v ->
@@ -974,9 +771,6 @@ public class SyncManager
 		return next;
 	}
 
-	/**
-	 * Pulls other PCs' changes, then pushes this PC's, then publishes the public page.
-	 */
 	private CompletableFuture<Void> syncAccount(String key)
 	{
 		return withLock(key, key.equals(service.getProfileKey()), () ->
@@ -1023,10 +817,6 @@ public class SyncManager
 		return now;
 	}
 
-	/**
-	 * Looks up the account's cloud profile once per session, which also catches a copied folder: the
-	 * server has seen more commits from this device ID than this PC made.
-	 */
 	private CompletableFuture<Void> ensureProfile(String key, SyncState st)
 	{
 		if (st.getProfileId() != null && resolved.contains(key))
@@ -1038,12 +828,10 @@ public class SyncManager
 		{
 			if (e != null)
 			{
-				// A profile_not_found (deleted on the website) is handled by syncAccount
 				throw new CompletionException(CloudException.cause(e));
 			}
 			if (!r.getProfile().getId().equals(st.getProfileId()))
 			{
-				// Saved again from another PC after being deleted: everything here goes up again
 				st.setProfileId(r.getProfile().getId());
 				st.setCursor(0);
 				st.getSent().clear();
@@ -1067,10 +855,6 @@ public class SyncManager
 		}, executor);
 	}
 
-	/**
-	 * Notes the account's public page settings from the server. Switching the page on, or showing
-	 * more of the journey, means it's published again.
-	 */
 	private void publicSettings(SyncState st, Api.PublicSettings now)
 	{
 		if (now == null)
@@ -1089,13 +873,6 @@ public class SyncManager
 		st.setPublicSettings(now);
 	}
 
-	/**
-	 * Publishes the account's public page, if it's public and anything on it changed. While the
-	 * account is played that's at most every few minutes, as the page changes with every XP drop.
-	 * A failure here never stops the sync; it's tried again next time.
-	 *
-	 * @param force publish now, if anything changed, however recently it was published
-	 */
 	private CompletableFuture<Void> publishPage(String key, SyncState st, boolean force)
 	{
 		Api.PublicSettings settings = st.getPublicSettings();
@@ -1123,15 +900,10 @@ public class SyncManager
 		}, executor);
 	}
 
-	/**
-	 * Looks the account up on the hiscores, if its page shows kills or the collection log and it
-	 * hasn't been looked up for a while. A failed lookup never stops the page; it's tried later.
-	 */
 	private CompletableFuture<Void> refreshHiscores(SyncState st, PublicSnapshot page, boolean asked)
 	{
 		long now = System.currentTimeMillis();
 		Hiscores.Entry known = st.getHiscores();
-		// When the player asks for a sync, sooner
 		long every = asked ? HISCORES_ASKED_EVERY : HISCORES_EVERY;
 		long retry = asked ? HISCORES_ASKED_EVERY : HISCORES_RETRY;
 		boolean fresh = known != null && page.getName().equalsIgnoreCase(known.getName()) && now - known.getFetchedAt() < every;
@@ -1154,7 +926,6 @@ public class SyncManager
 		{
 			if (e == null)
 			{
-				// Not on the hiscores at all is a result too
 				st.setHiscores(Hiscores.from(page.getName(), result, System.currentTimeMillis()));
 				Hiscores.Entry found = st.getHiscores();
 				note("hiscores for {}: {} bosses, {} clue tiers, {} minigames", page.getName(), found.getBosses().size(), found.getClues().size(), found.getActivities().size());
@@ -1170,7 +941,6 @@ public class SyncManager
 	private CompletableFuture<Void> sendPage(String key, SyncState st, Api.PublicSettings settings, PublicSnapshot page)
 	{
 		fit(page);
-		// Hashed before the time is set, so only real changes count
 		String hash = CloudCrypto.sha256(gson.toJson(page));
 		if (hash.equals(st.getPublishedHash()))
 		{
@@ -1197,13 +967,11 @@ note("public page published ({} bytes)", gson.toJson(page).length());
 				}
 				if (ce.is("not_public"))
 				{
-					// Switched off on the website meanwhile
 					settings.setEnabled(false);
 					settings.setUrl(null);
 				}
 				else if (ce.is("name_taken"))
 				{
-					// Tried again once anything on the page changes
 					st.setPublishedHash(hash);
 					st.setPublicProblem("Another RuneJourney player already has a public page for " + page.getName() + ".");
 				}
@@ -1225,10 +993,6 @@ note("public page published ({} bytes)", gson.toJson(page).length());
 		return settings != null && settings.isEnabled() && !settings.isBlocked() && settings.getSections().contains(CHARACTER);
 	}
 
-	/**
-	 * Sends the character captured for the account's public page, if the page doesn't already show
-	 * that look. A failure here never stops the sync either.
-	 */
 	private CompletableFuture<Void> publishCharacter(String key, SyncState st)
 	{
 		Captured captured = characters.get(key);
@@ -1245,7 +1009,6 @@ note("public page published ({} bytes)", gson.toJson(page).length());
 		byte[] body = captured.getModel().encode();
 		if (body.length > MAX_PAGE_BYTES)
 		{
-			// Too big for the website: shown in the next outfit instead
 			refusedLooks.add(captured.getLook());
 			characters.remove(key);
 			publish();
@@ -1280,7 +1043,6 @@ note("public page published ({} bytes)", gson.toJson(page).length());
 				}
 				else
 				{
-					// The page isn't published yet, say: tried again next sync
 					note("character not sent: {}", ce.getMessage());
 				}
 			}
@@ -1294,10 +1056,6 @@ note("public page published ({} bytes)", gson.toJson(page).length());
 		}, executor);
 	}
 
-	/**
-	 * Sends the account's whole collection log for its public page, once it's been synced from the
-	 * game, if the page doesn't already show this version of it.
-	 */
 	private CompletableFuture<Void> publishCollectionLog(String key, SyncState st)
 	{
 		Api.PublicSettings settings = st.getPublicSettings();
@@ -1363,10 +1121,6 @@ note("collection log published: {} tabs", clog.getTabs().size());
 		}, executor);
 	}
 
-	/**
-	 * Sends the account's quests and combat tasks for its public page, once they've been read from
-	 * the game, if the page doesn't already show them as they are. They go with the collection log.
-	 */
 	private CompletableFuture<Void> publishAchievements(String key, SyncState st)
 	{
 		Api.PublicSettings settings = st.getPublicSettings();
@@ -1380,7 +1134,6 @@ note("collection log published: {} tabs", clog.getTabs().size());
 		{
 			return CompletableFuture.completedFuture(null);
 		}
-		// Not when they were read, which is new every login
 		String hash = CloudCrypto.sha256(gson.toJson(achievements.getQuests()) + gson.toJson(achievements.getCombatTasks()));
 		if (hash.equals(settings.getAchievements()) || refusedAchievements.contains(hash))
 		{
@@ -1433,9 +1186,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		}, executor);
 	}
 
-	/**
-	 * Keeps the page within the website's request limit by showing fewer timeline events.
-	 */
 	private void fit(PublicSnapshot page)
 	{
 		while (page.getTimeline() != null && !page.getTimeline().isEmpty()
@@ -1446,11 +1196,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		}
 	}
 
-	/**
-	 * Makes the account's public page public or private, or changes whether it's in the website's
-	 * search. Null leaves a setting as it is. Which parts of the journey it shows is chosen on the
-	 * website.
-	 */
 	public void setPublic(Boolean enabled, Boolean searchable)
 	{
 		submit(() ->
@@ -1531,7 +1276,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 				if ((!profiles.isEmpty() || !days.isEmpty())
 					&& !service.applyRemote(key, gen, me(), clock(key), profiles, days, restore))
 				{
-					// A different account was loaded meanwhile; this one carries on next time
 					throw new StopSync(null);
 				}
 				st.setCursor(page.getCursor());
@@ -1541,7 +1285,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 				}
 				if (!page.isMore() && restore)
 				{
-					// This PC's own copy is back: uploads can start again
 					st.setRestoring(false);
 				}
 				saveState(key);
@@ -1593,16 +1336,12 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 				}
 			}
 			writeOutbox(key, outbox);
-			// This PC's parts changed: save them with the days
 			save();
 		}
 		saveState(key);
 		return drain(key, st);
 	}
 
-	/**
-	 * Uploads everything in the account's outbox.
-	 */
 	private CompletableFuture<Void> drain(String key, SyncState st)
 	{
 		if (st.getPending() != null)
@@ -1640,15 +1379,9 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		String kind;
 		String docKey;
 		byte[] body;
-		/**
-		 * For a journey document, the hash of its JSON.
-		 */
 		String docHash;
 	}
 
-	/**
-	 * Asks for signed URLs, sends each file straight to the storage, then commits them.
-	 */
 	private CompletableFuture<Void> upload(String key, SyncState st, List<Prepared> prepared)
 	{
 		List<Api.FileSpec> specs = new ArrayList<>();
@@ -1715,7 +1448,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 					}
 					if (ce.getStatus() == 410 || ce.getStatus() == 422 || ce.is("change_id_reused"))
 					{
-						// Never applied: the files go again next time
 						st.setPending(null);
 						saveState(key);
 					}
@@ -1744,9 +1476,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		publish();
 	}
 
-	/**
-	 * Uploads waiting from accounts that aren't loaded, e.g. one played earlier on this PC.
-	 */
 	private CompletableFuture<Void> drainOthers(String except)
 	{
 		List<String> keys;
@@ -1791,10 +1520,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		return chain;
 	}
 
-	// ------------------------------------------------------------------
-	// State
-	// ------------------------------------------------------------------
-
 	private boolean usable()
 	{
 		return config.cloudSync() && creds.isConnected() && !creds.isKeyRejected() && !updateNeeded && dataKey != null
@@ -1807,10 +1532,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		return Boolean.TRUE.equals(st.getConsent()) && st.isLinked() && !st.isChoosing();
 	}
 
-	/**
-	 * The server this build talks to: always the RuneJourney website, unless RuneLite is in
-	 * developer mode and another server is set.
-	 */
 	public String server()
 	{
 		String set = developerMode ? config.cloudServer() : null;
@@ -1827,10 +1548,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		return new Api.Session(creds.getServer(), creds.getApiKey(), creds.getDeviceId());
 	}
 
-	/**
-	 * Finds the account's cloud profile without telling the server which account it is: only the
-	 * same account, saved by the same player, gives the same fingerprint.
-	 */
 	private String fingerprint(String key)
 	{
 		return CloudCrypto.sha256(creds.getUserUuid() + ":" + key);
@@ -1856,7 +1573,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 			}
 			if (st == null || (st.getUserUuid() != null && !st.getUserUuid().equals(creds.getUserUuid())))
 			{
-				// Never synced here, or saved to a different player's cloud: start again
 				st = new SyncState();
 			}
 			states.put(key, st);
@@ -1890,9 +1606,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		}
 	}
 
-	/**
-	 * A copy of the account's documents waiting to upload.
-	 */
 	private Map<String, String> readOutbox(String key)
 	{
 		Map<String, String> outbox = outboxes.get(key);
@@ -1953,10 +1666,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 			holdKey = null;
 		}
 	}
-
-	// ------------------------------------------------------------------
-	// Status
-	// ------------------------------------------------------------------
 
 	private void publish()
 	{
@@ -2053,10 +1762,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		}
 	}
 
-	/**
-	 * Notes a failure: a revoked key stops syncing until a new one is pasted. Must run on the
-	 * executor. Returns null, for use in {@code handleAsync}.
-	 */
 	private Void failed(Throwable e)
 	{
 		Throwable cause = CloudException.cause(e);
@@ -2075,7 +1780,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 				saveCredentials();
 			}
 			problem = describe(cause);
-			// No URLs: signed ones work for anyone who has them
 			note("cloud sync failed: {}", cause.getClass().getSimpleName() + ": " + problem);
 		}
 		publish();
@@ -2112,13 +1816,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		return "Cloud sync hit a problem. It will try again.";
 	}
 
-	// ------------------------------------------------------------------
-	// Threading helpers
-	// ------------------------------------------------------------------
-
-	/**
-	 * Stops a sync without it counting as a failure (when the message is null).
-	 */
 	private static class StopSync extends RuntimeException
 	{
 		StopSync(String message)
@@ -2144,9 +1841,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		}
 	}
 
-	/**
-	 * Starts a call, turning anything it throws straight away into a failed future.
-	 */
 	private static <T> CompletableFuture<T> attempt(java.util.function.Supplier<CompletableFuture<T>> call)
 	{
 		try
@@ -2161,9 +1855,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		}
 	}
 
-	/**
-	 * @return false if sync isn't running
-	 */
 	private boolean submit(Runnable task)
 	{
 		Executor exec = executor;

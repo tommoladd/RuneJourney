@@ -1,31 +1,14 @@
 package com.runejourney.cloud;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPOutputStream;
+import java.security.*;
+import java.util.*;
+import java.util.zip.*;
 import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
+import javax.crypto.spec.*;
 
-/**
- * Everything uploaded is encrypted with the player's data key first, so the storage only ever holds
- * ciphertext. Each file is AES-256-GCM with a fresh nonce, and is bound to where it belongs (the
- * account, document and PC): a file moved anywhere else, or changed at all, fails to open.
- * <pre>
- *   "RJE" | format version (1 byte) | key ID (4 bytes) | nonce (12 bytes) | ciphertext and tag
- * </pre>
- */
 final class CloudCrypto
 {
 	private static final byte[] MAGIC = {'R', 'J', 'E'};
@@ -57,9 +40,6 @@ final class CloudCrypto
 		return key;
 	}
 
-	/**
-	 * @param binding where the file belongs, see {@link #binding}
-	 */
 	static byte[] seal(byte[] key, int keyId, byte[] plain, String binding) throws GeneralSecurityException
 	{
 		byte[] nonce = new byte[NONCE_BYTES];
@@ -101,10 +81,6 @@ final class CloudCrypto
 		return cipher.doFinal(file, HEADER_BYTES, file.length - HEADER_BYTES);
 	}
 
-	/**
-	 * Where a file belongs. Journey documents belong to the PC that wrote them; screenshots belong
-	 * to the account.
-	 */
 	static String binding(String userUuid, String profileId, String kind, String docKey, String deviceId)
 	{
 		return "runejourney|" + userUuid + "|" + profileId + "|" + kind + "|" + docKey + (deviceId != null ? "|" + deviceId : "");
@@ -120,9 +96,6 @@ final class CloudCrypto
 		return out.toByteArray();
 	}
 
-	/**
-	 * @param max the most it may expand to, so a hostile file can't fill the memory
-	 */
 	static byte[] gunzip(byte[] compressed, int max) throws IOException
 	{
 		try (InputStream in = new GZIPInputStream(new ByteArrayInputStream(compressed)))

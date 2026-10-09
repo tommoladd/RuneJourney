@@ -19,9 +19,6 @@ public final class Format
 		return NumberFormat.getIntegerInstance(Locale.ENGLISH).format(n);
 	}
 
-	/**
-	 * Compact quantity such as 624k, 4.28m or 1.14b.
-	 */
 	public static String compact(long n)
 	{
 		long abs = Math.abs(n);
@@ -63,9 +60,6 @@ public final class Format
 		return hours + "h " + minutes + "m";
 	}
 
-	/**
-	 * A time as a clock, like the game shows personal bests: "1:12", "12:05" or "1:05:30".
-	 */
 	public static String clock(double minutes)
 	{
 		long seconds = Math.max(1, Math.round(minutes * 60));

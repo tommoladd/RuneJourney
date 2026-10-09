@@ -1,13 +1,10 @@
 package com.runejourney.report;
 
-import java.time.DayOfWeek;
-import java.time.LocalDate;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
-import java.time.temporal.TemporalAdjusters;
+import java.time.temporal.*;
 import java.util.Locale;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import lombok.*;
 
 @Getter
 @RequiredArgsConstructor
@@ -29,9 +26,6 @@ public enum Granularity
 		return label;
 	}
 
-	/**
-	 * Picks a bucket size that gives a readable number of points for the range.
-	 */
 	public Granularity resolve(LocalDate from, LocalDate to)
 	{
 		if (this != AUTO)
@@ -85,9 +79,6 @@ public enum Granularity
 		}
 	}
 
-	/**
-	 * Singular noun for "best day/week/month".
-	 */
 	public String noun()
 	{
 		return name().toLowerCase(Locale.ENGLISH);

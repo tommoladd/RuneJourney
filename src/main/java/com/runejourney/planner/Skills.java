@@ -1,17 +1,10 @@
 package com.runejourney.planner;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import net.runelite.api.Experience;
-import net.runelite.api.Skill;
+import java.util.*;
+import net.runelite.api.*;
 
 public final class Skills
 {
-	/**
-	 * All trainable skills, excluding the OVERALL pseudo-skill.
-	 */
 	@SuppressWarnings("deprecation")
 	public static final List<Skill> ALL = Collections.unmodifiableList(Arrays.asList(
 		Arrays.stream(Skill.values()).filter(s -> s != Skill.OVERALL).toArray(Skill[]::new)));
@@ -44,9 +37,6 @@ public final class Skills
 		return v == null ? 0 : v;
 	}
 
-	/**
-	 * Real level (1-99) for an XP amount.
-	 */
 	public static int level(long xp)
 	{
 		return Math.min(Experience.MAX_REAL_LEVEL, Experience.getLevelForXp((int) Math.min(xp, Experience.MAX_SKILL_XP)));

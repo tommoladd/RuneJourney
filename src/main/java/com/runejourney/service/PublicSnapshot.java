@@ -1,41 +1,23 @@
 package com.runejourney.service;
 
 import com.google.gson.annotations.SerializedName;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import lombok.Data;
 
-/**
- * What an account's public page shows, as published to the RuneJourney website. Only the sections
- * the player switched on are filled in; the rest stay null and are left out.
- */
 @Data
 public class PublicSnapshot
 {
 	public static final String SCHEMA = "1.0";
 
 	private String schema = SCHEMA;
-	/**
-	 * The RuneScape name. The only time it's uploaded, and only for accounts made public.
-	 */
 	private String name;
-	/**
-	 * main, seasonal, deadman or fresh-start.
-	 */
 	private String world;
 	@SerializedName("generated_at")
 	private String generatedAt;
 
-	/**
-	 * Skill name to XP.
-	 */
 	private Map<String, Long> skills;
 	private Kills kills;
 	private Collection collection;
-	/**
-	 * Newest first.
-	 */
 	private List<Event> timeline;
 	private List<GoalRow> goals;
 	private List<RecordRow> records;
@@ -46,9 +28,6 @@ public class PublicSnapshot
 	{
 		private Map<String, Integer> bosses = new LinkedHashMap<>();
 		private Map<String, Integer> clues = new LinkedHashMap<>();
-		/**
-		 * Minigame scores from the hiscores, such as Last Man Standing, or null.
-		 */
 		private Map<String, Integer> activities;
 	}
 

@@ -1,12 +1,7 @@
 package com.runejourney.model;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
-/**
- * A running quantity and GP value for one item, e.g. within a loot source or supplies used.
- */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

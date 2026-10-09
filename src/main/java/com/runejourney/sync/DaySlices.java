@@ -1,50 +1,17 @@
 package com.runejourney.sync;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.DaySlice;
-import com.runejourney.model.JourneyEvent;
-import com.runejourney.model.NoteEdit;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.TreeMap;
+import com.google.gson.*;
+import com.runejourney.model.*;
+import java.util.*;
 import java.util.function.Function;
 
-/**
- * A day recorded on several PCs. Each PC keeps its own part (a {@link DaySlice}) and the day is all
- * the parts combined. Combining gives the same day whatever order the parts arrive in, and repeating
- * a part changes nothing.
- * <ul>
- *   <li>Counts add up: each PC's part holds what it counted itself.</li>
- *   <li>XP ranges join; XP found at login that another record already counts is trimmed away.</li>
- *   <li>Journey events join by ID. A delete beats everything; the newest note wins.</li>
- *   <li>The end-of-day snapshot is the newest one.</li>
- * </ul>
- */
 public final class DaySlices
 {
-	/**
-	 * Counts that add up across PCs.
-	 */
 	public static final Set<String> ADDITIVE = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
 		"playMillis", "xpGained", "skillXp", "levelsGained", "lootValue", "bossKills", "deaths", "collectionLogSlots",
 		"questsCompleted", "personalBests", "slayerTasks", "cluesCompleted", "pets", "clues", "clueLootValue",
 		"skillingIncome", "offlineXp", "offlineSkillXp", "awayXp", "awaySkillXp", "awayLevels", "skillingIncomeBySkill",
 		"lootBySource", "suppliesCost", "suppliesUsed", "combatTasks", "combatTaskPoints")));
-	/**
-	 * Fields combined one by one below.
-	 */
 	public static final Set<String> SPECIAL = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
 		"date", "awayFrom", "xpRanges", "offlineRanges", "awayRanges", "snapshot", "events", "sync")));
 
@@ -52,12 +19,6 @@ public final class DaySlices
 	{
 	}
 
-	/**
-	 * The day as every PC together recorded it.
-	 *
-	 * @param gson    a Gson that leaves out sync parts
-	 * @param slices  every PC's part, by device ID
-	 */
 	public static DayRecord combine(Gson gson, String date, Map<String, DaySlice> slices)
 	{
 		List<String> devices = devices(slices);
@@ -93,15 +54,6 @@ public final class DaySlices
 		return d;
 	}
 
-	/**
-	 * This PC's new part of a day: what the day holds that no other PC's part does, keeping its
-	 * earlier part's edits. Combining the result with the other parts gives back {@code view}.
-	 *
-	 * @param view   the day as it is now on this PC: every part combined, plus anything recorded or
-	 *               edited here since this PC's part was last worked out
-	 * @param me     this PC's device ID
-	 * @param slices every part as of when this PC's part was last worked out, including its own
-	 */
 	public static DaySlice reconcile(Gson gson, DayRecord view, String me, Map<String, DaySlice> slices, Hlc hlc)
 	{
 		DaySlice own = slices.get(me);
@@ -170,7 +122,6 @@ public final class DaySlices
 				continue;
 			}
 			kept.add(e.getId());
-			// Recorded here, or recorded here too and this PC's copy is the one shown
 			if (!remoteIds.contains(e.getId()) || me.equals(owner(e.getId(), slices)))
 			{
 				JourneyEvent c = e.copy();
@@ -199,10 +150,6 @@ public final class DaySlices
 		return next;
 	}
 
-	/**
-	 * Whether a day is exactly its parts combined, i.e. nothing has changed since this PC's part was
-	 * last worked out.
-	 */
 	public static boolean matches(Gson gson, DayRecord view, Map<String, DaySlice> slices)
 	{
 		DayRecord combined = combine(gson, view.getDate(), slices);
@@ -231,16 +178,6 @@ public final class DaySlices
 		return true;
 	}
 
-	/**
-	 * Drops XP found at login (offline or away XP) that another record already counts: XP another PC
-	 * recorded while playing, or the same XP found at an earlier login. Only the record that found it
-	 * loses it, and every PC makes the same choice, so each part can be trimmed by any PC.
-	 * <p>
-	 * Online XP is never trimmed: an account can only play on one PC at a time.
-	 *
-	 * @param byDate every synced day's parts, by date then device ID; trimmed parts are changed in place
-	 * @return the dates that changed, with the devices whose parts changed
-	 */
 	public static Map<String, Set<String>> trim(Map<String, Map<String, DaySlice>> byDate)
 	{
 		Map<String, List<Claim>> claims = new HashMap<>();
@@ -296,7 +233,6 @@ public final class DaySlices
 			}
 		});
 
-		// Rebuild each changed list, adjusting the counts that included the dropped XP
 		Map<DaySlice, Set<String>> done = new IdentityHashMap<>();
 		for (Claim c : trimmed.values())
 		{
@@ -370,10 +306,6 @@ public final class DaySlices
 		xp.computeIfPresent(skill, (k, v) -> v - by > 0 ? v - by : null);
 	}
 
-	/**
-	 * Events joined by ID. When PCs recorded the same event (one with a fixed ID), the earliest copy
-	 * is shown.
-	 */
 	private static List<JourneyEvent> events(List<String> devices, Map<String, DaySlice> slices)
 	{
 		Set<String> deleted = new HashSet<>();
@@ -427,9 +359,6 @@ public final class DaySlices
 		return out;
 	}
 
-	/**
-	 * The PC whose copy of an event is shown: the earliest, then the lowest device ID.
-	 */
 	private static String owner(String id, Map<String, DaySlice> slices)
 	{
 		String owner = null;
@@ -448,9 +377,6 @@ public final class DaySlices
 		return owner;
 	}
 
-	/**
-	 * This PC's XP ranges: its earlier ones, plus any now in the day that no other PC's part has.
-	 */
 	private static Map<String, List<long[]>> mine(DayRecord view, DayRecord own, Map<String, DaySlice> remotes,
 		Function<DayRecord, Map<String, List<long[]>>> kind)
 	{
@@ -489,9 +415,6 @@ public final class DaySlices
 		return b == null || a.compareTo(b) <= 0 ? a : b;
 	}
 
-	/**
-	 * Device IDs in a fixed order, so ties always go the same way. Parts without a day are left out.
-	 */
 	private static List<String> devices(Map<String, DaySlice> slices)
 	{
 		List<String> devices = new ArrayList<>();

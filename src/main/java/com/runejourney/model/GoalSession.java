@@ -1,12 +1,8 @@
 package com.runejourney.model;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import lombok.Data;
 
-/**
- * A player-started training session associated with a goal.
- */
 @Data
 public class GoalSession
 {

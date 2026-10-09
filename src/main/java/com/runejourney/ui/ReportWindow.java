@@ -1,77 +1,29 @@
 package com.runejourney.ui;
 
 import com.runejourney.RuneJourneyPlugin;
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.ItemTotal;
-import com.runejourney.model.JourneyEvent;
-import com.runejourney.planner.Counters;
-import com.runejourney.planner.GoalPlanner;
-import com.runejourney.planner.Skills;
-import com.runejourney.report.Analytics;
-import com.runejourney.report.CsvExport;
-import com.runejourney.report.Granularity;
-import com.runejourney.report.LootReport;
-import com.runejourney.report.Metric;
-import com.runejourney.report.Unit;
-import com.runejourney.service.JourneyService;
-import com.runejourney.service.ReportService;
+import com.runejourney.model.*;
+import com.runejourney.planner.*;
+import com.runejourney.report.*;
+import com.runejourney.service.*;
 import com.runejourney.util.Format;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.GridLayout;
-import java.awt.Toolkit;
+import java.awt.*;
 import java.awt.datatransfer.StringSelection;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.EnumMap;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.DefaultListModel;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComboBox;
-import javax.swing.JComponent;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JList;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTabbedPane;
-import javax.swing.JTable;
-import javax.swing.JTextField;
-import javax.swing.ScrollPaneConstants;
-import javax.swing.SwingUtilities;
-import javax.swing.WindowConstants;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.Value;
+import lombok.*;
 import net.runelite.api.Skill;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.*;
 import net.runelite.client.util.Filepath;
 
-/**
- * A separate window for exploring any tracked metric over any period with charts, breakdowns and
- * exports.
- */
 class ReportWindow extends JFrame
 {
 	private static final DateTimeFormatter EVENT_TIME = DateTimeFormatter.ofPattern("EEE d MMM HH:mm", Locale.ENGLISH);
@@ -172,7 +124,6 @@ class ReportWindow extends JFrame
 	private final JLabel rangeLabel = new JLabel();
 	private final JTabbedPane tabs = new JTabbedPane();
 
-	// Explore view
 	private final JLabel exploreTitle = new JLabel();
 	private final JPanel exploreTiles = new JPanel(new GridLayout(1, 4, 8, 0));
 	private final TimeSeriesChart mainChart = new TimeSeriesChart(false);
@@ -190,14 +141,12 @@ class ReportWindow extends JFrame
 	};
 	private final DefaultListModel<String> highlightModel = new DefaultListModel<>();
 
-	// Overview
 	private final JPanel overviewTiles = new JPanel(new GridLayout(2, 4, 8, 8));
 	private final JPanel overviewCharts = new JPanel(new GridLayout(2, 3, 8, 8));
 	private final BarChart xpBySkill = new BarChart(12);
 	private final BarChart killsByBoss = new BarChart(12);
 	private final BarChart incomeBySource = new BarChart(12);
 
-	// Loot
 	private static final String[] LOOT_COLUMNS = {"Source", "Kills / trips", "Total", "Per kill / trip", "Share",
 		"GP / hour", "Vs previous", "Best item"};
 	private final JPanel lootTiles = new JPanel(new GridLayout(1, 4, 8, 0));
@@ -214,21 +163,14 @@ class ReportWindow extends JFrame
 		@Override
 		public Class<?> getColumnClass(int column)
 		{
-			// Numbers stay numbers so sorting by a column orders by value, not text
 			return column == 0 || column == 7 ? String.class : LootCell.class;
 		}
 	};
 
-	/**
-	 * The source whose items are listed, kept across period changes.
-	 */
 	private String lootSource;
 	private final JTextField lootSearch = new JTextField();
 	private final JLabel lootTableTitle = new JLabel();
 	private List<LootReport.Row> lootRows = Collections.emptyList();
-	/**
-	 * How each listed source matched the search.
-	 */
 	private final Map<String, LootReport.Match> lootMatches = new java.util.HashMap<>();
 	private final JTable lootTable = new JTable(lootModel);
 	private final JLabel lootDetailTitle = new JLabel();
@@ -251,7 +193,6 @@ class ReportWindow extends JFrame
 		}
 	};
 
-	// Records
 	private final JPanel recordsPanel = new JPanel();
 
 	private LocalDate from;
@@ -321,10 +262,6 @@ class ReportWindow extends JFrame
 		reload();
 		setLocationRelativeTo(null);
 	}
-
-	// ------------------------------------------------------------------
-	// Layout
-	// ------------------------------------------------------------------
 
 	private JScrollPane scroll(JComponent content)
 	{
@@ -472,7 +409,6 @@ class ReportWindow extends JFrame
 		leftBars.setLabels(this::labelFor);
 		leftBars.setOnClick(e ->
 		{
-			// Drill into the clicked skill, boss or tier
 			for (int i = 0; i < filterBox.getItemCount(); i++)
 			{
 				FilterOption o = filterBox.getItemAt(i);
@@ -629,7 +565,6 @@ class ReportWindow extends JFrame
 		list.add(tableScroll, BorderLayout.CENTER);
 		addRow(p, cardWithTitle(lootTableTitle, list), 290);
 
-		// Everything one source has given, below the list
 		JPanel detail = new JPanel(new BorderLayout(0, 8));
 		detail.setBackground(ColorScheme.DARKER_GRAY_COLOR);
 		detail.setBorder(new EmptyBorder(10, 12, 10, 12));
@@ -662,9 +597,6 @@ class ReportWindow extends JFrame
 		return p;
 	}
 
-	/**
-	 * Sortable, with {@link LootCell} numbers right-aligned and shown formatted.
-	 */
 	private static void numberTable(JTable table)
 	{
 		table.setAutoCreateRowSorter(true);
@@ -681,9 +613,6 @@ class ReportWindow extends JFrame
 		});
 	}
 
-	/**
-	 * Shows a source's items, from a click on a chart bar.
-	 */
 	private void selectLootSource(String source)
 	{
 		for (int i = 0; i < lootTable.getRowCount(); i++)
@@ -713,7 +642,6 @@ class ReportWindow extends JFrame
 		boolean allTime = "All time".equals(lootScopeBox.getSelectedItem());
 		List<DayRecord> scope = allTime ? service.daysBetween(service.firstDay(), LocalDate.now()) : days;
 		LootReport.SourceDetail d = LootReport.detail(scope, lootSource);
-		// Found by an item: list just the matching items
 		LootReport.Match match = lootMatches.get(lootSource);
 		String itemFilter = match != null && !match.isBySource() ? lootSearch.getText().trim() : "";
 		lootDetailTitle.setText((itemFilter.isEmpty() ? "Everything from " : "Items matching \"" + itemFilter + "\" from ")
@@ -783,9 +711,6 @@ class ReportWindow extends JFrame
 		fillLootTable();
 	}
 
-	/**
-	 * Lists the sources that match the search, keeping the chosen one selected.
-	 */
 	private void fillLootTable()
 	{
 		String search = lootSearch.getText();
@@ -817,7 +742,6 @@ class ReportWindow extends JFrame
 			: shown == 0 ? "No sources or items match \"" + search.trim() + "\" in this period"
 			: shown + " of " + lootRows.size() + (lootRows.size() == 1 ? " source matches" : " sources match") + " \"" + search.trim() + "\"");
 
-		// Keep showing the chosen source when the period or search changes
 		if (lootSource != null)
 		{
 			selectLootSource(lootSource);
@@ -830,9 +754,6 @@ class ReportWindow extends JFrame
 		return r.getBestItem() == null ? "" : r.getBestItem() + " (" + Format.compact(r.getBestItemValue()) + ")";
 	}
 
-	/**
-	 * The items that made a source match, e.g. "Match: Rune chainbody x3 (88k), Rune 2h sword x1 (38k)".
-	 */
 	private static String matchText(LootReport.Row r, LootReport.Match match)
 	{
 		StringBuilder sb = new StringBuilder("Match: ");
@@ -851,9 +772,6 @@ class ReportWindow extends JFrame
 		return sb.toString();
 	}
 
-	/**
-	 * A sortable number in the loot table that knows how to display itself.
-	 */
 	private static final class LootCell extends Number implements Comparable<LootCell>
 	{
 		private final double value;
@@ -872,7 +790,6 @@ class ReportWindow extends JFrame
 
 		static LootCell gp(double v)
 		{
-			// Unknown values sort below everything
 			return Double.isNaN(v) ? new LootCell(Double.NEGATIVE_INFINITY, "-") : new LootCell(v, Format.compact(Math.round(v)));
 		}
 
@@ -922,10 +839,6 @@ class ReportWindow extends JFrame
 			return text;
 		}
 	}
-
-	// ------------------------------------------------------------------
-	// Data
-	// ------------------------------------------------------------------
 
 	private void reload()
 	{
@@ -996,9 +909,6 @@ class ReportWindow extends JFrame
 		render();
 	}
 
-	/**
-	 * Refills the "Show" list with the skills, bosses or tiers that appear in this period.
-	 */
 	private void updateFilters()
 	{
 		updating = true;
@@ -1104,10 +1014,6 @@ class ReportWindow extends JFrame
 		return s == null ? key : s.getName();
 	}
 
-	// ------------------------------------------------------------------
-	// Rendering
-	// ------------------------------------------------------------------
-
 	private void render()
 	{
 		if (from == null)
@@ -1165,7 +1071,6 @@ class ReportWindow extends JFrame
 			Double.isNaN(stats.getPreviousTotal()) ? "No earlier data" : "was " + unit.format(stats.getPreviousTotal()),
 			Ui.MUTED, Double.isNaN(change) ? Color.WHITE : change >= 0 ? Ui.GOOD : Ui.BAD));
 
-		// Breakdowns: by part (skill/boss/tier) when viewing everything, and by day of week
 		boolean parts = m.getFilter() != Metric.Filter.NONE && filter == null && !m.isPerHour();
 		if (parts)
 		{
@@ -1203,7 +1108,6 @@ class ReportWindow extends JFrame
 			rightBars.setData(Analytics.byWeekday(days, from, to, m, filter), unit, color(m));
 		}
 
-		// Table
 		List<Analytics.Bucket> raw = Analytics.series(days, from, to, m, filter, g);
 		List<Analytics.Bucket> rawPrev = previous != null ? Analytics.previousSeries(previousDays, from, to, m, filter, g) : null;
 		List<String> columns = new ArrayList<>();
@@ -1224,7 +1128,6 @@ class ReportWindow extends JFrame
 		{
 			running[i] = raw.get(i).getValue() + (i > 0 ? running[i - 1] : 0);
 		}
-		// Newest first
 		for (int i = raw.size() - 1; i >= 0; i--)
 		{
 			Analytics.Bucket b = raw.get(i);
@@ -1243,7 +1146,6 @@ class ReportWindow extends JFrame
 			tableModel.addRow(row.toArray());
 		}
 
-		// Related moments
 		highlightModel.clear();
 		List<JourneyEvent> related = new ArrayList<>();
 		for (DayRecord d : days)
@@ -1315,7 +1217,6 @@ class ReportWindow extends JFrame
 		xpBySkill.setData(Analytics.breakdown(days, from, to, Metric.XP), Unit.COUNT, color(Metric.XP));
 		killsByBoss.setData(Analytics.breakdown(days, from, to, Metric.KILLS), Unit.COUNT, color(Metric.KILLS));
 
-		// Income: drops (excluding clues), clue caskets, then each skill
 		double loot = 0;
 		double clueLoot = 0;
 		for (DayRecord d : days)
@@ -1343,9 +1244,6 @@ class ReportWindow extends JFrame
 		incomeBySource.setData(income, Unit.GP, color(Metric.INCOME));
 	}
 
-	/**
-	 * Personal records and streaks. These cover all time, whatever period is selected.
-	 */
 	private void renderRecords()
 	{
 		recordsPanel.removeAll();
@@ -1410,10 +1308,6 @@ class ReportWindow extends JFrame
 		}
 		return t;
 	}
-
-	// ------------------------------------------------------------------
-	// Export
-	// ------------------------------------------------------------------
 
 	private String title()
 	{

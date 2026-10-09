@@ -1,28 +1,15 @@
 package com.runejourney.ui;
 
 import com.runejourney.RuneJourneyConfig;
-import com.runejourney.cloud.CloudStatus;
-import com.runejourney.cloud.SyncManager;
-import java.awt.BorderLayout;
-import java.awt.GridLayout;
-import javax.inject.Inject;
-import javax.inject.Named;
-import javax.swing.JCheckBox;
-import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JPasswordField;
-import javax.swing.JTextField;
+import com.runejourney.cloud.*;
+import java.awt.*;
+import javax.inject.*;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.util.LinkBrowser;
 
-/**
- * Cloud sync in the side panel: a status line under the title that opens the cloud card (connect,
- * status, disconnect), and questions for the player shown above the tabs.
- */
 class CloudSection
 {
 	private static final String WARNING = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers";
@@ -31,17 +18,8 @@ class CloudSection
 	private final ConfigManager configManager;
 	private final boolean developerMode;
 
-	/**
-	 * The status line under the panel's title.
-	 */
 	final JLabel link;
-	/**
-	 * Questions and warnings, above the tabs.
-	 */
 	final JPanel prompts = Ui.stack(4);
-	/**
-	 * The cloud card, shown when the status line is clicked.
-	 */
 	final JPanel card = Ui.stack(4);
 
 	private CloudStatus shown;
@@ -73,13 +51,9 @@ class CloudSection
 		refresh();
 	}
 
-	/**
-	 * Rebuilds what's changed. Must be called on the Swing thread.
-	 */
 	void refresh()
 	{
 		CloudStatus s = sync.status();
-		// "Synced 2 min ago" moves on by itself
 		if (s.equals(shown) && (s.getLastSync() == 0 || System.currentTimeMillis() - shownAt < 30_000))
 		{
 			return;
@@ -143,10 +117,6 @@ class CloudSection
 		}
 		return "Cloud sync: connected";
 	}
-
-	// ------------------------------------------------------------------
-	// Questions above the tabs
-	// ------------------------------------------------------------------
 
 	private void addPrompts(CloudStatus s)
 	{
@@ -212,10 +182,6 @@ class CloudSection
 		shown = null;
 		refresh();
 	}
-
-	// ------------------------------------------------------------------
-	// The cloud card
-	// ------------------------------------------------------------------
 
 	private JPanel cloudCard(CloudStatus s)
 	{
@@ -314,10 +280,6 @@ class CloudSection
 		card.add(Ui.muted("Deleting cloud data and keys is done on the website, signed in with Discord."));
 	}
 
-	/**
-	 * The account's public page: its address, and switches to make it public and list it in search.
-	 * Which parts of the journey it shows is chosen on the website.
-	 */
 	private void publicPage(JPanel card, CloudStatus s)
 	{
 		JLabel heading = Ui.small("Public page", Ui.GOLD);
@@ -390,9 +352,6 @@ class CloudSection
 		}
 	}
 
-	/**
-	 * The address without "https://", to fit the sidebar.
-	 */
 	private static String shortUrl(String url)
 	{
 		return url.replaceFirst("^https?://", "");
@@ -428,10 +387,6 @@ class CloudSection
 			LinkBrowser.browse((server.endsWith("/") ? server : server + "/") + "cloud");
 		}
 	}
-
-	// ------------------------------------------------------------------
-	// Helpers
-	// ------------------------------------------------------------------
 
 	private static JPanel buttons(JComponent... buttons)
 	{

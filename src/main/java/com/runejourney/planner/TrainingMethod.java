@@ -2,10 +2,6 @@ package com.runejourney.planner;
 
 import lombok.Getter;
 
-/**
- * A way of training a skill. XP/hr depends on the player's XP: {@code rates} is a list of
- * [xpThreshold, xpPerHour] steps, sorted by threshold, where each rate applies from its threshold onwards.
- */
 public class TrainingMethod
 {
 	@Getter
@@ -35,9 +31,6 @@ public class TrainingMethod
 		return Math.max(1, rate);
 	}
 
-	/**
-	 * Hours needed to go from one XP amount to another, following the rate steps.
-	 */
 	public double hours(long fromXp, long toXp)
 	{
 		double hours = 0;

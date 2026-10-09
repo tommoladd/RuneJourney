@@ -3,31 +3,17 @@ package com.runejourney.ui;
 import com.runejourney.RuneJourneyPlugin;
 import com.runejourney.model.JourneyEvent;
 import com.runejourney.planner.Skills;
-import com.runejourney.service.JourneyService;
-import com.runejourney.service.JourneyStore;
-import com.runejourney.service.SessionView;
+import com.runejourney.service.*;
 import com.runejourney.util.Format;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Image;
+import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.time.Instant;
-import java.time.ZoneId;
+import java.time.*;
 import java.time.format.DateTimeFormatter;
-import java.util.EnumMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import javax.swing.ImageIcon;
-import javax.swing.JLabel;
-import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
+import javax.inject.*;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -35,9 +21,6 @@ import net.runelite.api.Skill;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.ui.FontManager;
 
-/**
- * Renderers shared between tabs.
- */
 @Slf4j
 @Singleton
 class Views
@@ -72,14 +55,10 @@ class Views
 		return icons.computeIfAbsent(skill, s -> new ImageIcon(skillIconManager.getSkillImage(s, true)));
 	}
 
-	/**
-	 * A Journey event row. When {@code date} is given the entry can be deleted via right click.
-	 */
 	JPanel event(JourneyEvent e, String date)
 	{
 		JPanel card = Ui.accentCard(e.getType().getColor());
 
-		// The stripe colour shows the type; the time sits beside the title to keep rows short
 		String time = Instant.ofEpochMilli(e.getTime()).atZone(ZoneId.systemDefault()).format(TIME);
 		Skill skill = Skills.parse(e.getSkill());
 		JLabel title = Ui.label(e.getTitle(), FontManager.getRunescapeFont(), Color.WHITE, Ui.TEXT_WIDTH - (skill != null ? 52 : 32));
@@ -113,7 +92,6 @@ class Views
 			card.add(note(e.getNote()));
 		}
 
-		// Notes can be added wherever an event is shown; removing it is only offered in the Journey
 		String day = date != null ? date : Instant.ofEpochMilli(e.getTime()).atZone(ZoneId.systemDefault()).toLocalDate().toString();
 		JPopupMenu menu = new JPopupMenu();
 		JMenuItem editNote = new JMenuItem(e.getNote() == null ? "Add note..." : "Edit note...");
@@ -154,9 +132,6 @@ class Views
 	private static final Color NOTE_COLOR = new Color(0xD7CCC8);
 	private static final int MAX_NOTE_LENGTH = 500;
 
-	/**
-	 * The player's note, keeping their line breaks.
-	 */
 	private static JLabel note(String text)
 	{
 		JLabel l = new JLabel("<html><div style='width:" + Ui.TEXT_WIDTH + "px'>"
@@ -192,9 +167,6 @@ class Views
 		onChange.run();
 	}
 
-	/**
-	 * Right clicks on a card's labels open the card's menu too, not just clicks on its edges.
-	 */
 	private static void inheritPopup(java.awt.Container c)
 	{
 		for (java.awt.Component child : c.getComponents())

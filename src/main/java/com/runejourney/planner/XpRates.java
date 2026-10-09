@@ -1,20 +1,14 @@
 package com.runejourney.planner;
 
-import java.util.EnumMap;
-import java.util.Map;
+import java.util.*;
 import net.runelite.api.Skill;
 
-/**
- * Generic mid-to-high level XP/hr assumptions used until RuneJourney has observed the player's own rates.
- * These are deliberately rough; they only need to be in the right ballpark for weekly planning.
- */
 public final class XpRates
 {
 	private static final Map<Skill, int[]> RATES = new EnumMap<>(Skill.class);
 
 	static
 	{
-		// efficient, balanced, relaxed (thousands of XP per hour)
 		rate(Skill.ATTACK, 110, 80, 50);
 		rate(Skill.STRENGTH, 120, 85, 55);
 		rate(Skill.DEFENCE, 110, 80, 50);

@@ -1,13 +1,8 @@
 package com.runejourney.service;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.regex.*;
 import lombok.Value;
 
-/**
- * Recognises game messages that represent Journey-worthy events. Input must already have
- * formatting tags removed.
- */
 public final class ChatParser
 {
 	private static final Pattern KILL_COUNT = Pattern.compile(
@@ -16,13 +11,7 @@ public final class ChatParser
 	private static final Pattern QUEST = Pattern.compile("^Congratulations, you've completed a quest: (.+?)\\.?$");
 	private static final Pattern COMBAT_TASK = Pattern.compile(
 		"you've completed an? (\\w+) combat task: (.+?)(?: \\(([\\d,]+) points?\\))?\\.?$", Pattern.CASE_INSENSITIVE);
-	/**
-	 * Some game messages carry a machine-readable prefix such as "CA_ID:1234|".
-	 */
 	private static final Pattern ID_PREFIX = Pattern.compile("^[A-Z_]+:\\d+\\|");
-	/**
-	 * Colour markers the game embeds in some messages, e.g. "@ach_comp@" before a combat task name.
-	 */
 	private static final Pattern MARKER = Pattern.compile("@[A-Za-z0-9_]+@");
 	private static final Pattern DIARY_TIER = Pattern.compile(
 		"^Congratulations! You have completed all of the (\\w+) tasks in the (.+?) area\\..*$");
@@ -53,13 +42,7 @@ public final class ChatParser
 	public static class Result
 	{
 		Kind kind;
-		/**
-		 * Primary subject: boss, item, quest, task or area name, or PB time.
-		 */
 		String name;
-		/**
-		 * Secondary detail such as combat task tier or diary tier.
-		 */
 		String detail;
 		int count;
 	}
@@ -130,9 +113,6 @@ public final class ChatParser
 		return null;
 	}
 
-	/**
-	 * Removes the game's embedded colour markers from text.
-	 */
 	public static String clean(String text)
 	{
 		return text == null ? null : MARKER.matcher(text).replaceAll("").trim();
@@ -140,7 +120,6 @@ public final class ChatParser
 
 	private static String normalizeBoss(String name)
 	{
-		// "Your subdued Wintertodt count is: 12"
 		if (name.startsWith("subdued "))
 		{
 			name = name.substring("subdued ".length());
@@ -148,9 +127,6 @@ public final class ChatParser
 		return name.isEmpty() ? name : Character.toUpperCase(name.charAt(0)) + name.substring(1);
 	}
 
-	/**
-	 * Points per combat task tier, for messages that don't state them.
-	 */
 	private static int defaultTaskPoints(String tier)
 	{
 		switch (tier.toLowerCase())

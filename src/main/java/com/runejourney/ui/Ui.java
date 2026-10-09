@@ -1,30 +1,11 @@
 package com.runejourney.ui;
 
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Cursor;
-import java.awt.Dimension;
-import java.awt.Font;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.SwingConstants;
+import java.awt.*;
+import java.awt.event.*;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import net.runelite.client.ui.ColorScheme;
-import net.runelite.client.ui.DynamicGridLayout;
-import net.runelite.client.ui.FontManager;
-import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.ui.*;
 
-/**
- * Small Swing building blocks shared by the RuneJourney tabs.
- */
 final class Ui
 {
 	static final Color GOLD = new Color(0xE0B040);
@@ -32,9 +13,6 @@ final class Ui
 	static final Color GOOD = new Color(0x4CAF50);
 	static final Color WARN = new Color(0xFFA726);
 	static final Color BAD = new Color(0xEF5350);
-	/**
-	 * Usable width for wrapped text inside a card.
-	 */
 	static final int TEXT_WIDTH = PluginPanel.PANEL_WIDTH - 60;
 
 	private Ui()
@@ -57,9 +35,6 @@ final class Ui
 		return p;
 	}
 
-	/**
-	 * A card with a coloured stripe down its left edge.
-	 */
 	static JPanel accentCard(Color accent)
 	{
 		JPanel p = card();
@@ -68,14 +43,6 @@ final class Ui
 			new EmptyBorder(5, 7, 5, 6)));
 		return p;
 	}
-
-	/*
-	 * Type scale, used everywhere in the sidebar:
-	 *   header - section headings: bold, gold, sentence case
-	 *   title  - the name of a thing (event, goal, suggestion): regular, white
-	 *   text / muted / small - everything else: small font
-	 * Nothing is upper-cased; the RuneScape fonts read badly in capitals.
-	 */
 
 	static JLabel header(String text)
 	{
@@ -91,9 +58,6 @@ final class Ui
 		return label(text, FontManager.getRunescapeFont(), Color.WHITE);
 	}
 
-	/**
-	 * Applies the sidebar font to a form control such as a dropdown or check box.
-	 */
 	static <T extends JComponent> T styled(T component)
 	{
 		component.setFont(FontManager.getRunescapeSmallFont());
@@ -123,9 +87,6 @@ final class Ui
 		return l;
 	}
 
-	/**
-	 * Wraps text in HTML so long lines break within the sidebar.
-	 */
 	static String wrap(String text)
 	{
 		return wrap(text, TEXT_WIDTH);
@@ -145,9 +106,6 @@ final class Ui
 		return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
 	}
 
-	/**
-	 * A "label ........ value" row.
-	 */
 	static JPanel stat(String name, String value)
 	{
 		return stat(name, value, Color.WHITE);
@@ -169,10 +127,6 @@ final class Ui
 		return row;
 	}
 
-	/**
-	 * A left/right row that never asks for more than the sidebar's width, so a long value is
-	 * shortened with "..." rather than widening (and clipping) the whole view.
-	 */
 	private static JPanel rowPanel()
 	{
 		JPanel row = new JPanel(new BorderLayout(6, 0))
@@ -189,10 +143,6 @@ final class Ui
 		return row;
 	}
 
-	/**
-	 * A short single-line label. Unlike {@link #text} it doesn't reserve the full wrapping width,
-	 * so it can sit beside other components.
-	 */
 	static JLabel small(String text, Color color)
 	{
 		JLabel l = new JLabel(text);
@@ -201,9 +151,6 @@ final class Ui
 		return l;
 	}
 
-	/**
-	 * A row with a label on the left and another on the right, neither wrapping.
-	 */
 	static JPanel row(JComponent left, JComponent right)
 	{
 		JPanel row = rowPanel();
@@ -228,9 +175,6 @@ final class Ui
 		return b;
 	}
 
-	/**
-	 * Makes a card respond to clicks with a hover highlight.
-	 */
 	static void clickable(JPanel card, Runnable action)
 	{
 		card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -258,9 +202,6 @@ final class Ui
 		card.addMouseListener(listener);
 	}
 
-	/**
-	 * A headline number with a caption beneath, for the grid at the top of a page.
-	 */
 	static JPanel tile(String value, String caption, Color valueColor)
 	{
 		JPanel p = new JPanel(new BorderLayout(0, 2))
@@ -268,7 +209,6 @@ final class Ui
 			@Override
 			public Dimension getPreferredSize()
 			{
-				// Two share a row, so never ask for more than half the width
 				Dimension d = super.getPreferredSize();
 				d.width = Math.min(d.width, TEXT_WIDTH / 2);
 				return d;
@@ -286,9 +226,6 @@ final class Ui
 		return p;
 	}
 
-	/**
-	 * A section card with a gold heading.
-	 */
 	static JPanel section(String title)
 	{
 		JPanel card = card();
@@ -300,9 +237,6 @@ final class Ui
 		return card;
 	}
 
-	/**
-	 * A clickable text link.
-	 */
 	static JLabel link(String text, Runnable action)
 	{
 		JLabel l = new JLabel(text);

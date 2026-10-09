@@ -1,22 +1,13 @@
 package com.runejourney.ui;
 
-import com.runejourney.service.JourneyService;
-import com.runejourney.service.Suggestion;
-import java.awt.BorderLayout;
-import java.awt.FlowLayout;
+import com.runejourney.service.*;
+import java.awt.*;
 import java.util.List;
 import java.util.Map;
 import javax.inject.Inject;
-import javax.swing.JComboBox;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import javax.swing.*;
+import lombok.*;
 
-/**
- * "What should I do right now?" suggestions driven by goals, weekly plans and nearby milestones.
- */
 class DiscoverTab extends RefreshableTab
 {
 	@Getter
@@ -62,7 +53,6 @@ class DiscoverTab extends RefreshableTab
 	@Override
 	void refresh(boolean force)
 	{
-		// Suggestions don't need to follow every XP drop
 		long now = System.currentTimeMillis();
 		int version = service.getVersion();
 		if (!force && (version == lastVersion || now - lastRefresh < 15_000))

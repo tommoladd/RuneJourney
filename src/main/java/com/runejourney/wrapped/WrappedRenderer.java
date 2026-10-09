@@ -1,20 +1,8 @@
 package com.runejourney.wrapped;
 
 import com.runejourney.util.Format;
-import java.awt.AlphaComposite;
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.Composite;
-import java.awt.Font;
-import java.awt.FontMetrics;
-import java.awt.GradientPaint;
-import java.awt.Graphics2D;
-import java.awt.Point;
-import java.awt.Rectangle;
-import java.awt.RenderingHints;
-import java.awt.Shape;
-import java.awt.geom.AffineTransform;
-import java.awt.geom.RoundRectangle2D;
+import java.awt.*;
+import java.awt.geom.*;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,21 +10,11 @@ import java.util.function.Function;
 import lombok.Getter;
 import net.runelite.client.ui.FontManager;
 
-/**
- * Draws a Wrapped slide with time-based animation. Used by both the in-game overlay and the window,
- * so it only depends on a Graphics2D, a size and the elapsed time.
- */
 public final class WrappedRenderer
 {
-	/**
-	 * Base time a slide stays up before advancing on its own, plus time per extra line.
-	 */
 	public static final long SLIDE_MS = 6500;
 	public static final long LINE_MS = 700;
 
-	/**
-	 * [top, bottom, accent] per theme.
-	 */
 	private static final Color[][] PALETTES = {
 		{new Color(0x1B1035), new Color(0x4A1F6E), new Color(0xF2C14E)},
 		{new Color(0x0B2A2F), new Color(0x13705F), new Color(0xB8F2E6)},
@@ -47,9 +25,6 @@ public final class WrappedRenderer
 
 	private static final Color DIM = new Color(0, 0, 0, 170);
 
-	/**
-	 * Button areas from the last paint, for click handling.
-	 */
 	@Getter
 	public static class Layout
 	{
@@ -87,7 +62,6 @@ public final class WrappedRenderer
 			g.fillRect(0, 0, w, h);
 		}
 
-		// Card
 		int cw = dimBackground ? Math.min(w - 24, Math.max(460, (int) (w * 0.66))) : w;
 		int ch = dimBackground ? Math.min(h - 24, Math.max(380, (int) (h * 0.84))) : h;
 		int cx = (w - cw) / 2;
@@ -95,7 +69,6 @@ public final class WrappedRenderer
 		layout.card = new Rectangle(cx, cy, cw, ch);
 		Shape card = new RoundRectangle2D.Double(cx, cy, cw, ch, dimBackground ? 26 : 0, dimBackground ? 26 : 0);
 
-		// The card pops in on open
 		double open = ease(clamp(totalMs / 350.0));
 		AffineTransform at = g.getTransform();
 		if (open < 1)
@@ -107,7 +80,6 @@ public final class WrappedRenderer
 			g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) open));
 		}
 
-		// Background: gradient that slowly breathes between slides
 		double breathe = 0.5 + 0.5 * Math.sin(totalMs / 2400.0);
 		Color top = mix(palette[0], palette[1], 0.15 * breathe);
 		g.setPaint(new GradientPaint(cx, cy, top, cx + cw * 0.3f, cy + ch, palette[1]));
@@ -115,7 +87,6 @@ public final class WrappedRenderer
 		java.awt.Shape oldClip = g.getClip();
 		g.clip(card);
 
-		// Soft light blobs and drifting sparkles
 		drawBlob(g, cx + cw * (0.2 + 0.1 * Math.sin(totalMs / 3100.0)), cy + ch * 0.25, cw * 0.5, accent, 0.10f);
 		drawBlob(g, cx + cw * (0.85 + 0.05 * Math.cos(totalMs / 2700.0)), cy + ch * 0.8, cw * 0.45, Color.WHITE, 0.06f);
 		for (int i = 0; i < 26; i++)
@@ -132,7 +103,6 @@ public final class WrappedRenderer
 		}
 		g.setComposite(open < 1 ? AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) open) : base);
 
-		// Progress segments
 		int n = week.getSlides().size();
 		int pad = Math.max(16, cw / 30);
 		int gap = 4;
@@ -149,7 +119,6 @@ public final class WrappedRenderer
 			g.fillRoundRect(sx, sy, (int) (segW * fill), 4, 4, 4);
 		}
 
-		// Brand
 		Font small = FontManager.getRunescapeSmallFont();
 		g.setFont(small.deriveFont((float) Math.max(16, ch / 28)));
 		g.setColor(new Color(255, 255, 255, 170));
@@ -158,9 +127,7 @@ public final class WrappedRenderer
 		FontMetrics fmSmall = g.getFontMetrics();
 		g.drawString(range, cx + cw - pad - fmSmall.stringWidth(range), cy + pad + 26);
 
-		// Content
 		BufferedImage icon = slide.getIcon() == null ? null : icons.apply(slide.getIcon());
-		// Slides with lists, summaries or screenshots need the room, so everything above them shrinks
 		boolean dense = !slide.getLines().isEmpty() || !slide.getSummary().isEmpty() || slide.getScreenshot() != null;
 		int contentTop = cy + (int) (ch * (icon != null ? (dense ? 0.1 : 0.11) : (dense ? 0.14 : 0.2)));
 		int contentWidth = cw - pad * 4;
@@ -170,7 +137,6 @@ public final class WrappedRenderer
 		Font regular = FontManager.getRunescapeFont();
 		Font bold = FontManager.getRunescapeBoldFont();
 
-		// Buttons sit along the bottom; content must stay above them
 		g.setFont(regular.deriveFont((float) Math.max(18, ch / 24)));
 		FontMetrics fb = g.getFontMetrics();
 		int by = cy + ch - pad - fb.getHeight() - 8;
@@ -181,7 +147,6 @@ public final class WrappedRenderer
 		if (icon != null)
 		{
 			int size = (int) (dense ? Math.min(64, ch * 0.11) : Math.min(104, ch * 0.16));
-			// Pops in with a little overshoot, then floats gently
 			double t = clamp(slideMs / 550.0);
 			double pop = t < 1 ? backEase(t) : 1;
 			double bob = Math.sin(totalMs / 520.0) * size * 0.04;
@@ -270,7 +235,6 @@ public final class WrappedRenderer
 			}
 		}
 
-		// Supporting lines, one after another
 		if (!slide.getLines().isEmpty())
 		{
 			g.setFont(regular.deriveFont((float) Math.max(17, ch / 24)));
@@ -307,7 +271,6 @@ public final class WrappedRenderer
 			}
 		}
 
-		// Screenshot for the best moment
 		if (screenshot != null)
 		{
 			double t = ease(clamp((slideMs - 1000) / 700.0));
@@ -332,7 +295,6 @@ public final class WrappedRenderer
 			}
 		}
 
-		// Summary grid on the last slide
 		if (!slide.getSummary().isEmpty())
 		{
 			int cols = 3;
@@ -340,7 +302,6 @@ public final class WrappedRenderer
 			int tileW = Math.min(200, (contentWidth - 20) / cols);
 			int space = contentBottom - (y + 24) - 10 * (rowsCount - 1);
 			int tileH = Math.max(40, Math.min(ch / 7, space / Math.max(1, rowsCount)));
-			// Show only as many rows as fit above the buttons
 			int rowsFit = Math.max(1, (contentBottom - (y + 24) + 10) / (tileH + 10));
 			int shown = Math.min(slide.getSummary().size(), rowsFit * cols);
 			int gridW = cols * tileW + (cols - 1) * 10;
@@ -370,7 +331,6 @@ public final class WrappedRenderer
 			}
 		}
 
-		// Buttons
 		g.setComposite(open < 1 ? AlphaComposite.getInstance(AlphaComposite.SRC_OVER, (float) open) : base);
 		g.setFont(regular.deriveFont((float) Math.max(18, ch / 24)));
 		boolean last = index == n - 1;
@@ -400,9 +360,6 @@ public final class WrappedRenderer
 		return r;
 	}
 
-	/**
-	 * Draws game art centred on a point, scaled with nearest-neighbour so pixels stay crisp.
-	 */
 	private static void drawIcon(Graphics2D g, BufferedImage img, int cx, int cy, int size)
 	{
 		if (img == null || size <= 0 || img.getWidth() <= 0 || img.getHeight() <= 0)
@@ -418,9 +375,6 @@ public final class WrappedRenderer
 		g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, old == null ? RenderingHints.VALUE_INTERPOLATION_BILINEAR : old);
 	}
 
-	/**
-	 * Ease with a small overshoot, for things that pop in.
-	 */
 	private static double backEase(double t)
 	{
 		double c1 = 1.70158;

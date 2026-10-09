@@ -1,13 +1,8 @@
 package com.runejourney.sync;
 
-import com.runejourney.model.DaySlice;
-import com.runejourney.model.ProfileSlice;
+import com.runejourney.model.*;
 import lombok.Data;
 
-/**
- * The document each PC uploads for a day or the profile, and its schema version. A newer minor
- * version can still be read, ignoring fields this version doesn't know; a newer major version can't.
- */
 public final class Envelope
 {
 	public static final int MAJOR = 1;
@@ -28,9 +23,6 @@ public final class Envelope
 		private DaySlice day;
 	}
 
-	/**
-	 * Whether this version of RuneJourney can read a document written with this schema.
-	 */
 	public static boolean readable(String schema)
 	{
 		if (schema == null)
@@ -53,9 +45,6 @@ public final class Envelope
 		return DAY_PREFIX + date;
 	}
 
-	/**
-	 * The date of a day document, or null for the profile.
-	 */
 	public static String dateOf(String docKey)
 	{
 		return docKey != null && docKey.startsWith(DAY_PREFIX) ? docKey.substring(DAY_PREFIX.length()) : null;

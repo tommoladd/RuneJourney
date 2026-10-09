@@ -1,33 +1,9 @@
 package com.runejourney.sync;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
+import com.google.gson.*;
 import com.runejourney.model.ProfileSlice;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 
-/**
- * Goals edited on several PCs, joined by goal ID. Each goal is split into parts that are combined
- * separately:
- * <ul>
- *   <li>what the player set (name, targets, items wanted): the newest edit wins</li>
- *   <li>this week's plan: the plan for the latest week wins, then the newest</li>
- *   <li>each wanted item's obtained state: the newest change wins</li>
- *   <li>completion: the earliest; "can afford it": once true stays true</li>
- *   <li>Grand Exchange purchases: added up, as each PC counts the ones it saw</li>
- * </ul>
- * Deleted goals stay deleted.
- */
 final class GoalJoin
 {
 	static final Set<String> SAME = keys("id", "type", "createdAt", "startXp", "startTotalLevel", "startCount");
@@ -44,10 +20,6 @@ final class GoalJoin
 	{
 	}
 
-	/**
-	 * @param devices device IDs in a fixed order
-	 * @param goals   each PC's goals
-	 */
 	static JsonArray combine(List<String> devices, Map<String, JsonArray> goals, Map<String, ProfileSlice> slices)
 	{
 		Set<String> deleted = new HashSet<>();
@@ -119,9 +91,6 @@ final class GoalJoin
 		return array;
 	}
 
-	/**
-	 * This PC's copies of the goals, with anything changed here since they were last worked out.
-	 */
 	static JsonArray reconcile(JsonArray viewGoals, JsonArray baseGoals, JsonArray ownGoals, ProfileSlice next, Hlc hlc)
 	{
 		Map<String, JsonObject> view = byId(viewGoals);
@@ -133,7 +102,6 @@ final class GoalJoin
 			JsonObject bg = base.get(id);
 			if (bg == null)
 			{
-				// Made on this PC
 				JsonObject ng = vg.deepCopy();
 				next.getClocks().put(clock(id, "spec"), hlc.next());
 				next.getClocks().put(clock(id, "plan"), hlc.next());
@@ -153,7 +121,6 @@ final class GoalJoin
 			}
 			else
 			{
-				// A copy of another PC's goal, holding only what changes here
 				ng = vg.deepCopy();
 				SUM.forEach(k -> ng.addProperty(k, 0));
 			}
@@ -227,7 +194,6 @@ final class GoalJoin
 				continue;
 			}
 			long c = slices.get(e.getKey()).getClocks().getOrDefault(clockKey, 0L);
-			// With no clocks to go by (copies made before syncing), an item obtained anywhere is obtained
 			if (best == null || c > bestClock || (c == bestClock && Trees.getLong(theirs, "obtainedAt") > 0 && Trees.getLong(best, "obtainedAt") == 0))
 			{
 				best = theirs;
@@ -256,9 +222,6 @@ final class GoalJoin
 		return best;
 	}
 
-	/**
-	 * Each PC rolls a goal into a new week on its own, so the plan for the latest week is kept.
-	 */
 	private static String latestPlan(Map<String, JsonObject> byDevice, Map<String, ProfileSlice> slices, String id)
 	{
 		String best = null;
@@ -322,9 +285,6 @@ final class GoalJoin
 		return out;
 	}
 
-	/**
-	 * Items are matched by ID, or by name for items without one.
-	 */
 	static String itemKey(JsonObject item)
 	{
 		long id = Trees.getLong(item, "id");

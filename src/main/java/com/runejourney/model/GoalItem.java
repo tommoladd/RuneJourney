@@ -1,11 +1,7 @@
 package com.runejourney.model;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
-/**
- * An item the player wants to obtain as part of an item goal.
- */
 @Data
 @NoArgsConstructor
 public class GoalItem

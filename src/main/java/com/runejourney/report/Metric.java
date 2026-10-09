@@ -1,20 +1,10 @@
 package com.runejourney.report;
 
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.EventType;
-import com.runejourney.model.LootSource;
+import com.runejourney.model.*;
 import com.runejourney.planner.Counters;
-import java.util.Collections;
-import java.util.EnumSet;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import java.util.*;
+import lombok.*;
 
-/**
- * Something that can be charted over time from daily records.
- */
 @Getter
 @RequiredArgsConstructor
 public enum Metric
@@ -43,9 +33,6 @@ public enum Metric
 	GP_PER_HOUR("Income per hour played", Unit.RATE, Filter.NONE, true, EnumSet.of(EventType.DROP)),
 	KILLS_PER_HOUR("Kills per hour played", Unit.RATE, Filter.BOSS, true, EnumSet.of(EventType.BOSS_KC));
 
-	/**
-	 * What a metric can be narrowed down to.
-	 */
 	public enum Filter
 	{
 		NONE, SKILL, BOSS, CLUE_TIER, SOURCE
@@ -54,13 +41,7 @@ public enum Metric
 	private final String label;
 	private final Unit unit;
 	private final Filter filter;
-	/**
-	 * Per-hour metrics: the value is the metric divided by hours played.
-	 */
 	private final boolean perHour;
-	/**
-	 * Journey events worth listing alongside this metric.
-	 */
 	private final Set<EventType> relatedEvents;
 
 	@Override
@@ -69,26 +50,17 @@ public enum Metric
 		return label;
 	}
 
-	/**
-	 * Balances such as net worth: a period's value is where it ended, not the sum of its days.
-	 */
 	public boolean isBalance()
 	{
 		return this == NET_WORTH;
 	}
 
-	/**
-	 * End-of-day balance, or NaN when it wasn't recorded that day.
-	 */
 	public double balance(DayRecord d)
 	{
 		Long v = d.getSnapshot().get(Counters.WEALTH);
 		return v == null || v <= 0 ? Double.NaN : v;
 	}
 
-	/**
-	 * The raw daily amount; for per-hour metrics, the numerator.
-	 */
 	public double value(DayRecord d, String filter)
 	{
 		switch (this)
@@ -96,7 +68,6 @@ public enum Metric
 			case XP:
 				return filter == null ? d.getXpGained() : d.getSkillXp().getOrDefault(filter, 0L);
 			case XP_PER_HOUR:
-				// XP gained on other devices has no matching play time here
 				if (filter == null)
 				{
 					return d.getXpGained() - d.getOfflineXp();
@@ -164,9 +135,6 @@ public enum Metric
 		return d.getPlayMillis() / 3_600_000d;
 	}
 
-	/**
-	 * The day's amounts split by skill, boss or clue tier, for metrics that support it.
-	 */
 	public Map<String, Double> parts(DayRecord d)
 	{
 		Map<String, Double> parts = new HashMap<>();

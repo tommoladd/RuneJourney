@@ -2,96 +2,29 @@ package com.runejourney.service;
 
 import com.google.gson.Gson;
 import com.runejourney.RuneJourneyConfig;
-import com.runejourney.model.ClogItem;
-import com.runejourney.model.DayRecord;
-import com.runejourney.model.DaySlice;
-import com.runejourney.model.DaySync;
-import com.runejourney.model.EventType;
-import com.runejourney.model.Goal;
-import com.runejourney.model.GoalItem;
-import com.runejourney.model.GoalSession;
-import com.runejourney.model.GoalType;
-import com.runejourney.model.ItemTotal;
-import com.runejourney.model.JourneyEvent;
-import com.runejourney.model.LootSource;
-import com.runejourney.model.ObservedRate;
-import com.runejourney.model.ProfileData;
-import com.runejourney.model.ProfileSlice;
-import com.runejourney.model.ProfileSync;
-import com.runejourney.model.SavedMethod;
-import com.runejourney.planner.BossData;
-import com.runejourney.planner.Counters;
-import com.runejourney.planner.GoalPlanner;
-import com.runejourney.planner.GoalProgress;
-import com.runejourney.planner.RateSource;
-import com.runejourney.planner.Skills;
-import com.runejourney.planner.TrainingMethod;
-import com.runejourney.planner.TrainingMethods;
-import com.runejourney.planner.XpRates;
-import com.runejourney.sync.DaySlices;
-import com.runejourney.sync.Envelope;
-import com.runejourney.sync.EventIds;
-import com.runejourney.sync.Hlc;
-import com.runejourney.sync.ProfileJoin;
-import com.runejourney.sync.Trees;
+import com.runejourney.model.*;
+import com.runejourney.planner.*;
+import com.runejourney.sync.*;
 import com.runejourney.util.Format;
 import java.io.IOException;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
-import java.util.TreeSet;
-import java.util.UUID;
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import lombok.Getter;
-import lombok.Value;
+import java.util.*;
+import javax.inject.*;
+import lombok.*;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.ChatMessageType;
-import net.runelite.api.Experience;
-import net.runelite.api.Skill;
-import net.runelite.client.chat.ChatColorType;
-import net.runelite.client.chat.ChatMessageBuilder;
-import net.runelite.client.chat.ChatMessageManager;
-import net.runelite.client.chat.QueuedMessage;
+import net.runelite.api.*;
+import net.runelite.client.chat.*;
 
-/**
- * Owns the loaded profile and all Journey state. Every public method is synchronized: the client
- * thread records gameplay while the Swing thread reads snapshots for the sidebar. Methods that
- * return data always return copies.
- */
 @Slf4j
 @Singleton
 public class JourneyService implements RateSource
 {
 	private static final int TICK_MILLIS = 600;
-	/**
-	 * A gap between XP drops in a skill longer than this (5 minutes) ends a stretch of training it.
-	 * Shorter gaps, such as bank trips, count towards the stretch's time.
-	 */
 	private static final int STINT_GAP_TICKS = 500;
-	/**
-	 * How far a rate can be from a saved method's, as a fraction of it, and still count as that method.
-	 */
 	private static final double SAME_METHOD_TOLERANCE = 0.15;
-	/**
-	 * Rates the player chose not to save that are remembered per skill.
-	 */
 	private static final int MAX_DISMISSED_RATES = 5;
 	private static final int MAX_METHOD_NAME = 30;
-	/**
-	 * How close (in ticks) a kill count message must be to relate it to a PB, drop or pet.
-	 */
 	private static final int PB_WINDOW_TICKS = 3;
 	private static final int LOOT_WINDOW_TICKS = 10;
 	private static final int CLUE_WINDOW_TICKS = 5;
@@ -102,25 +35,10 @@ public class JourneyService implements RateSource
 	private static final String KILLS_RECORD_TITLE = "Most boss kills in a day";
 	private static final String SESSION_RECORD_TITLE = "Longest session";
 	private static final String STREAK_RECORD_TITLE = "Longest play streak";
-	/**
-	 * Play streaks only become records worth mentioning after this many days.
-	 */
 	private static final int MIN_STREAK_RECORD = 3;
-	/**
-	 * Marks saved methods in the method choices, so they can't clash with the built-in ones.
-	 */
 	private static final String SAVED_SUFFIX = " (yours)";
-	/**
-	 * The method choice that used a lifetime average of all training, before methods could be saved.
-	 */
 	private static final String LEGACY_OWN_RATE = "My own XP rate";
-	/**
-	 * Kills needed before the player's own kill times are trusted.
-	 */
 	private static final int MIN_OBSERVED_KILLS = 5;
-	/**
-	 * Longest gap between kills that still counts as one bossing trip.
-	 */
 	private static final long MAX_KILL_GAP_MILLIS = 20 * 60_000L;
 
 	private final JourneyStore store;
@@ -134,36 +52,16 @@ public class JourneyService implements RateSource
 
 	@Getter
 	private volatile String profileKey;
-	/**
-	 * Account whose profile is being loaded, so a slow load can't install a stale profile.
-	 */
 	private String pendingKey;
 	private ProfileData profile;
 	private final TreeMap<String, DayRecord> days = new TreeMap<>();
 	private final Set<String> dirtyDays = new HashSet<>();
 	private boolean profileDirty;
-	/**
-	 * Every Journey event's ID, so an event with a fixed ID is only recorded once.
-	 */
 	private final Set<String> eventIds = new HashSet<>();
-	/**
-	 * Days changed since this PC last worked out its own part of them for cloud sync.
-	 */
 	private final Set<String> syncDays = new HashSet<>();
 	private boolean syncProfile;
-	/**
-	 * Days replaced by the cloud's journey, whose files are deleted on the next save.
-	 */
 	private final Set<String> removedDays = new HashSet<>();
-	/**
-	 * The account's quests and combat tasks, as last read from the game, for its public page. Not
-	 * saved: they're read again each time the account logs in.
-	 */
 	private PublicAchievements achievements;
-	/**
-	 * Bumped whenever a profile is loaded or unloaded, so cloud results meant for an earlier one are
-	 * ignored.
-	 */
 	@Getter
 	private volatile int generation;
 	private final Gson syncGson;
@@ -171,9 +69,6 @@ public class JourneyService implements RateSource
 	private final Map<String, Long> xp = new HashMap<>();
 	@Getter
 	private volatile boolean baselineSet;
-	/**
-	 * Skill name to the stretch of training it is in (or was last in) this session.
-	 */
 	private final Map<String, Stint> stints = new HashMap<>();
 	private String lastRollDate;
 	private int currentTick;
@@ -183,21 +78,11 @@ public class JourneyService implements RateSource
 	private int lastKcTick = Integer.MIN_VALUE / 2;
 	private String pendingPbTime;
 	private int pendingPbTick;
-	/**
-	 * Wall-clock time of the previous kill per boss this session, for learning kill times.
-	 */
 	private final Map<String, Long> lastKillMillis = new HashMap<>();
 	private PendingClue pendingClue;
-	/**
-	 * Time logged in this session, for the longest-session record.
-	 */
 	private long sessionMillis;
 	private String lastStreakCheck;
 
-	/**
-	 * A clue completion is reported by a chat message and the reward inventory, which can arrive in
-	 * either order, so they're combined here.
-	 */
 	private static class PendingClue
 	{
 		String tier;
@@ -206,25 +91,13 @@ public class JourneyService implements RateSource
 		int tick;
 	}
 
-	/**
-	 * Continuous training of one skill, whose rate is the rate of the method being trained.
-	 */
 	private static class Stint
 	{
 		long xp;
 		long millis;
 		int lastTick;
-		/**
-		 * Set once it has run long enough to be compared with the saved methods.
-		 */
 		boolean checked;
-		/**
-		 * The detected rate this stint is offering to save, kept up to date as training goes on.
-		 */
 		SavedMethod offer;
-		/**
-		 * Items made or gathered, to suggest a name for the method.
-		 */
 		final Map<String, Integer> products = new HashMap<>();
 
 		double xpPerHour()
@@ -242,14 +115,8 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Incremented on any change so the UI knows when to refresh.
-	 */
 	@Getter
 	private volatile int version;
-	/**
-	 * Incremented only when Journey events are added or removed.
-	 */
 	@Getter
 	private volatile int eventVersion;
 
@@ -266,10 +133,6 @@ public class JourneyService implements RateSource
 		this.trainingMethods = trainingMethods;
 		this.syncGson = Trees.withoutSync(gson);
 	}
-
-	// ------------------------------------------------------------------
-	// Lifecycle
-	// ------------------------------------------------------------------
 
 	public synchronized boolean isReady()
 	{
@@ -304,8 +167,6 @@ public class JourneyService implements RateSource
 			d.getEvents().forEach(e -> eventIds.add(e.getId()));
 		}
 		migrateWealth();
-		// The lifetime average was dragged down by early, slower training. Plans fall back to the
-		// generic estimate until the player saves a rate of their own.
 		if (profile.getPreferredMethods().values().removeIf(LEGACY_OWN_RATE::equals))
 		{
 			profileDirty = true;
@@ -321,10 +182,6 @@ public class JourneyService implements RateSource
 		changed(true);
 	}
 
-	/**
-	 * Profiles saved before item holdings were tracked only have a value per container. Keep the
-	 * last bank value until the bank is next opened; inventory and equipment are re-read on login.
-	 */
 	private void migrateWealth()
 	{
 		if (profile.getWealthParts().isEmpty() && profile.isBankValueKnown() && profile.getBankValue() > 0)
@@ -341,11 +198,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Fixes entries saved before the parser removed the game's colour markers (e.g. "@ach_comp@"),
-	 * and marks memories added before they were marked. A memory's time is a whole minute (the
-	 * player types HH:MM); a recorded event's almost never is.
-	 */
 	private void cleanEventText()
 	{
 		for (DayRecord d : days.values())
@@ -367,10 +219,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	// ------------------------------------------------------------------
-	// Wealth
-	// ------------------------------------------------------------------
-
 	public static final String BANK = "bank";
 
 	private long netWorth()
@@ -378,10 +226,6 @@ public class JourneyService implements RateSource
 		return profile.getWealthParts().values().stream().mapToLong(Long::longValue).sum();
 	}
 
-	/**
-	 * The items last seen in one container. The bank is only visible while it's open; the rest
-	 * update as they change.
-	 */
 	public synchronized void onHoldings(String part, Map<Integer, Integer> items)
 	{
 		if (profile == null || !config.trackWealth())
@@ -392,9 +236,6 @@ public class JourneyService implements RateSource
 		profileDirty = true;
 	}
 
-	/**
-	 * A copy of everything the account was last seen holding, for pricing.
-	 */
 	public synchronized Map<String, Map<Integer, Integer>> holdings()
 	{
 		Map<String, Map<Integer, Integer>> copy = new HashMap<>();
@@ -405,18 +246,11 @@ public class JourneyService implements RateSource
 		return copy;
 	}
 
-	/**
-	 * GE value of one container.
-	 */
 	public synchronized void onWealth(String part, long value)
 	{
 		onWealth(Collections.singletonMap(part, value));
 	}
 
-	/**
-	 * GE value of several containers at once. Pass every container that changed together (e.g.
-	 * an item moving from the bank to equipment) so the total is never counted mid-move.
-	 */
 	public synchronized void onWealth(Map<String, Long> parts)
 	{
 		if (profile == null || !config.trackWealth() || parts.isEmpty())
@@ -443,8 +277,6 @@ public class JourneyService implements RateSource
 		}
 		if (!knownBefore || newPart)
 		{
-			// First look at the bank, or a container counted for the first time (e.g. the potion store
-			// after updating): set the baseline quietly rather than celebrating every milestone
 			profile.setBestWealth(Math.max(profile.getBestWealth(), now));
 		}
 		else if (now > profile.getBestWealth())
@@ -481,16 +313,12 @@ public class JourneyService implements RateSource
 			}
 			catch (java.text.ParseException | NumberFormatException ignored)
 			{
-				// skip malformed entries
 			}
 		}
 		Collections.sort(out);
 		return out;
 	}
 
-	/**
-	 * [net worth, change since the end of the previous recorded day], or null if the bank hasn't been seen.
-	 */
 	public synchronized long[] netWorthToday()
 	{
 		if (profile == null || !config.trackWealth() || !profile.isBankValueKnown())
@@ -507,14 +335,6 @@ public class JourneyService implements RateSource
 		return new long[]{now, start == null ? Long.MIN_VALUE : now - start};
 	}
 
-	// ------------------------------------------------------------------
-	// Collection log
-	// ------------------------------------------------------------------
-
-	/**
-	 * A collection log page the player just viewed. Obtained items tick off item goals quietly,
-	 * since they may have been obtained long ago.
-	 */
 	public synchronized void onCollectionLogPage(String page, List<ClogItem> items)
 	{
 		if (profile == null || page == null || page.isEmpty() || items.isEmpty())
@@ -536,12 +356,6 @@ public class JourneyService implements RateSource
 		changed(false);
 	}
 
-	/**
-	 * The whole collection log, synced from the game: every page, in its tabs.
-	 *
-	 * @param tabs tab name to its pages, in the game's order
-	 * @param pages page name to its items
-	 */
 	public synchronized void onCollectionLog(Map<String, List<String>> tabs, Map<String, List<ClogItem>> pages)
 	{
 		if (profile == null || pages.isEmpty())
@@ -566,9 +380,6 @@ public class JourneyService implements RateSource
 		changed(false);
 	}
 
-	/**
-	 * The collection log for the account's public page, or null until it's been synced in full.
-	 */
 	public synchronized PublicCollectionLog publicCollectionLog(String key, int gen)
 	{
 		if (!isCurrent(key, gen) || profile.getCollectionLogTabs().isEmpty())
@@ -602,13 +413,6 @@ public class JourneyService implements RateSource
 		return out;
 	}
 
-	// ------------------------------------------------------------------
-	// Quests and combat tasks
-	// ------------------------------------------------------------------
-
-	/**
-	 * Every quest and combat task, as just read from the game.
-	 */
 	public synchronized void onAchievements(List<PublicAchievements.Quest> quests, List<PublicAchievements.CombatTask> tasks)
 	{
 		if (profile == null || (quests.isEmpty() && tasks.isEmpty()))
@@ -626,18 +430,11 @@ public class JourneyService implements RateSource
 		achievements = a;
 	}
 
-	/**
-	 * The account's quests and combat tasks for its public page, or null until they've been read
-	 * from the game since it logged in.
-	 */
 	public synchronized PublicAchievements publicAchievements(String key, int gen)
 	{
 		return isCurrent(key, gen) ? achievements : null;
 	}
 
-	/**
-	 * Obtained items tick off item goals quietly, since they may have been obtained long ago.
-	 */
 	private void tickItemGoals(List<ClogItem> items)
 	{
 		long now = System.currentTimeMillis();
@@ -665,9 +462,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Imported pages: name to [obtained, total], sorted by name.
-	 */
 	public synchronized Map<String, int[]> collectionLogPages()
 	{
 		Map<String, int[]> out = new TreeMap<>();
@@ -693,13 +487,6 @@ public class JourneyService implements RateSource
 		return copy;
 	}
 
-	// ------------------------------------------------------------------
-	// Streaks and records
-	// ------------------------------------------------------------------
-
-	/**
-	 * [current, best] days played in a row. The current streak survives until the end of a day off.
-	 */
 	public synchronized int[] playStreaks()
 	{
 		int best = 0;
@@ -757,7 +544,6 @@ public class JourneyService implements RateSource
 		}
 		if (sessionMillis > profile.getLongestSessionMillis())
 		{
-			// Only worth mentioning once there's a previous record to beat
 			if (profile.getLongestSessionMillis() >= 30 * 60_000L)
 			{
 				JourneyEvent e = event(EventType.RECORD, SESSION_RECORD_TITLE,
@@ -772,9 +558,6 @@ public class JourneyService implements RateSource
 		sessionMillis = 0;
 	}
 
-	/**
-	 * Best value over days before today.
-	 */
 	private long bestDay(java.util.function.ToLongFunction<DayRecord> value)
 	{
 		String today = LocalDate.now().toString();
@@ -791,15 +574,9 @@ public class JourneyService implements RateSource
 	{
 		String title;
 		String value;
-		/**
-		 * When it was set, or null.
-		 */
 		LocalDate date;
 	}
 
-	/**
-	 * The player's personal records, best first within each kind.
-	 */
 	public synchronized List<PersonalRecord> records()
 	{
 		List<PersonalRecord> out = new ArrayList<>();
@@ -816,7 +593,6 @@ public class JourneyService implements RateSource
 		dayRecord(out, "Most clues in a day", d -> d.getCluesCompleted(), v -> v + (v == 1 ? " clue" : " clues"));
 		dayRecord(out, "Most collection log slots in a day", d -> d.getCollectionLogSlots(), v -> v + (v == 1 ? " slot" : " slots"));
 
-		// Best week (Monday to Sunday) for XP
 		Map<LocalDate, Long> weeks = new TreeMap<>();
 		for (DayRecord d : days.values())
 		{
@@ -825,7 +601,6 @@ public class JourneyService implements RateSource
 		weeks.entrySet().stream().max(Map.Entry.comparingByValue()).filter(e -> e.getValue() > 0).ifPresent(e ->
 			out.add(new PersonalRecord("Most XP in a week", Format.compact(e.getValue()) + " XP", e.getKey())));
 
-		// Biggest single drop
 		JourneyEvent biggest = null;
 		LocalDate biggestDate = null;
 		for (DayRecord d : days.values())
@@ -888,13 +663,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	// ------------------------------------------------------------------
-	// Wrapped
-	// ------------------------------------------------------------------
-
-	/**
-	 * Monday of the most recent finished week that has play in it, or null.
-	 */
 	public synchronized LocalDate latestWrappedWeek()
 	{
 		List<LocalDate> weeks = wrappedWeeks();
@@ -902,9 +670,6 @@ public class JourneyService implements RateSource
 		return !weeks.isEmpty() && weeks.get(0).equals(last) ? last : null;
 	}
 
-	/**
-	 * Finished weeks with any play, newest first. The current week isn't wrapped until it ends.
-	 */
 	public synchronized List<LocalDate> wrappedWeeks()
 	{
 		java.util.TreeSet<LocalDate> weeks = new java.util.TreeSet<>(Collections.reverseOrder());
@@ -920,9 +685,6 @@ public class JourneyService implements RateSource
 		return new ArrayList<>(weeks);
 	}
 
-	/**
-	 * True when last week's Wrapped is ready and hasn't been watched yet.
-	 */
 	public synchronized boolean isWrappedNew()
 	{
 		LocalDate latest = latestWrappedWeek();
@@ -939,9 +701,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Announces a new Wrapped in chat, once per week.
-	 */
 	private void notifyWrapped()
 	{
 		LocalDate latest = latestWrappedWeek();
@@ -995,7 +754,6 @@ public class JourneyService implements RateSource
 		}
 		in.itemIds(ids);
 
-		// Earlier weeks, for "biggest week yet"
 		Map<LocalDate, List<DayRecord>> earlier = new TreeMap<>();
 		for (DayRecord d : days.headMap(weekStart.toString(), false).values())
 		{
@@ -1003,7 +761,6 @@ public class JourneyService implements RateSource
 		}
 		earlier.values().forEach(list -> in.earlierWeek(com.runejourney.wrapped.WrappedBuilder.weekTotals(list)));
 
-		// Weekly plan results are only kept for the week that just ended
 		if (profile != null && weekStart.equals(GoalPlanner.weekStart(LocalDate.now()).minusWeeks(1)))
 		{
 			for (Goal g : profile.getGoals())
@@ -1023,7 +780,6 @@ public class JourneyService implements RateSource
 			}
 		}
 
-		// Days in a row played, ending with the week
 		int streak = 0;
 		for (LocalDate d = weekEnd; ; d = d.minusDays(1))
 		{
@@ -1046,10 +802,6 @@ public class JourneyService implements RateSource
 		return com.runejourney.wrapped.WrappedBuilder.build(in.build());
 	}
 
-	// ------------------------------------------------------------------
-	// Overlay
-	// ------------------------------------------------------------------
-
 	public synchronized String overlayGoalId()
 	{
 		return profile == null ? null : profile.getOverlayGoalId();
@@ -1065,9 +817,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Everything the overlay shows, prepared ahead of time so drawing each frame stays cheap.
-	 */
 	public synchronized OverlayData overlayData()
 	{
 		if (profile == null || !baselineSet)
@@ -1206,9 +955,6 @@ public class JourneyService implements RateSource
 		pendingKey = key;
 	}
 
-	/**
-	 * Installs a loaded profile only if it's still the one wanted.
-	 */
 	public synchronized boolean installIfCurrent(String key, JourneyStore.Loaded loaded)
 	{
 		if (!key.equals(pendingKey))
@@ -1220,9 +966,6 @@ public class JourneyService implements RateSource
 		return true;
 	}
 
-	/**
-	 * Stops waiting for a load that turned out not to be needed.
-	 */
 	public synchronized void cancelLoad(String key)
 	{
 		if (key.equals(pendingKey))
@@ -1250,9 +993,6 @@ public class JourneyService implements RateSource
 		changed(true);
 	}
 
-	/**
-	 * Called on logout: forget in-memory skill state so the next login takes a fresh baseline.
-	 */
 	public synchronized void resetSessionState()
 	{
 		finishPlaySession();
@@ -1265,9 +1005,6 @@ public class JourneyService implements RateSource
 		pendingClue = null;
 	}
 
-	/**
-	 * Serializes all unsaved data. The returned task performs the disk IO and must run off the client thread.
-	 */
 	public synchronized Runnable collectWrites()
 	{
 		if (profile == null || (!profileDirty && dirtyDays.isEmpty() && removedDays.isEmpty()))
@@ -1282,7 +1019,6 @@ public class JourneyService implements RateSource
 		}
 		if (profile.getSync() != null)
 		{
-			// Still to be worked into this PC's part for cloud sync
 			syncDays.addAll(dirtyDays);
 			syncProfile |= profileDirty;
 		}
@@ -1343,15 +1079,6 @@ public class JourneyService implements RateSource
 		return d;
 	}
 
-	// ------------------------------------------------------------------
-	// Gameplay recording (client thread)
-	// ------------------------------------------------------------------
-
-	/**
-	 * Takes the XP baseline after login. XP gained while RuneJourney wasn't running (e.g. on
-	 * mobile) is today's if the gap was all today; otherwise which day it was gained isn't known,
-	 * so it's kept aside rather than credited to today.
-	 */
 	public synchronized void setBaseline(Map<String, Long> current, int tick)
 	{
 		if (profile == null)
@@ -1362,8 +1089,6 @@ public class JourneyService implements RateSource
 		Map<String, Long> previous = new HashMap<>(profile.getLastXp());
 		if (!previous.isEmpty())
 		{
-			// If a new week started while away, start it from the last known XP so XP gained on
-			// another device counts towards this week's plan instead of vanishing into the boundary
 			xp.clear();
 			xp.putAll(previous);
 			rollWeeksIfNeeded();
@@ -1536,10 +1261,6 @@ public class JourneyService implements RateSource
 		changed(false);
 	}
 
-	/**
-	 * Adds XP gained from one total to another, extending the skill's last range when it carries on
-	 * from where that one ended.
-	 */
 	private static void addRange(Map<String, List<long[]>> ranges, String skill, long from, long to)
 	{
 		List<long[]> list = ranges.computeIfAbsent(skill, k -> new ArrayList<>());
@@ -1554,16 +1275,10 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Follows continuous training of a skill. Once it has gone on for the sample time its rate is compared
-	 * with the player's saved methods: a match becomes the method they train with now, and a rate
-	 * that matches none of them is offered to be saved.
-	 */
 	private void trainingStint(Skill skill, long delta, int tick)
 	{
 		String key = skill.name();
 		Stint stint = stints.get(key);
-		// The tick count starts again after a world hop
 		if (stint == null || tick < stint.lastTick || tick - stint.lastTick > STINT_GAP_TICKS)
 		{
 			stint = new Stint();
@@ -1576,7 +1291,6 @@ public class JourneyService implements RateSource
 		}
 		stint.lastTick = tick;
 
-		// Hitpoints only ever comes alongside a combat skill
 		if (skill == Skill.HITPOINTS || stint.millis < rateSampleMinutes() * 60_000L || stint.xp <= 0)
 		{
 			return;
@@ -1605,7 +1319,6 @@ public class JourneyService implements RateSource
 		SavedMethod match = closest(profile.getSavedMethods().get(key), rate);
 		if (match != null)
 		{
-			// Estimates follow straight away; this week's targets stay as planned
 			markUsed(profile.getSavedMethods().get(key), match);
 			profileDirty = true;
 			return;
@@ -1623,7 +1336,6 @@ public class JourneyService implements RateSource
 		SavedMethod waiting = profile.getDetectedMethods().put(key, offer);
 		stint.offer = offer;
 		profileDirty = true;
-		// Don't ask again about a rate that's still waiting in the panel from earlier training
 		if (waiting == null || !sameRate(waiting.xpPerHour(), rate))
 		{
 			say("Detected a new " + skill.getName() + " method at " + Format.compact((long) rate)
@@ -1631,9 +1343,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * The saved method whose rate is nearest to this one, if it's close enough to be the same method.
-	 */
 	private static SavedMethod closest(List<SavedMethod> saved, double rate)
 	{
 		SavedMethod best = null;
@@ -1651,9 +1360,6 @@ public class JourneyService implements RateSource
 		return best;
 	}
 
-	/**
-	 * Makes this the skill's most recently trained method, strictly after the others.
-	 */
 	private static void markUsed(List<SavedMethod> saved, SavedMethod m)
 	{
 		long latest = saved.stream().filter(o -> o != m).mapToLong(SavedMethod::getLastUsed).max().orElse(0);
@@ -1756,7 +1462,6 @@ public class JourneyService implements RateSource
 
 	private void checkDailyRecord(String kind, long todayValue, long previousBest, String title, String detail)
 	{
-		// Need some history before "records" mean anything
 		if (previousBest <= 0 || todayValue <= previousBest || days.size() < 7)
 		{
 			return;
@@ -1916,9 +1621,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Food eaten or a potion dose drunk, valued at what was used up (leftovers already deducted).
-	 */
 	public synchronized void onSupplyUsed(String name, int quantity, long value)
 	{
 		if (profile == null || !config.trackSupplies() || value <= 0)
@@ -1953,9 +1655,6 @@ public class JourneyService implements RateSource
 		return null;
 	}
 
-	/**
-	 * Net value of items gained (or used) while training a skill, e.g. pickpocketing or alching.
-	 */
 	public synchronized void onSkillingIncome(Skill skill, long value, List<LootItem> gained)
 	{
 		if (profile == null || !baselineSet)
@@ -2074,9 +1773,6 @@ public class JourneyService implements RateSource
 		checkGoals();
 	}
 
-	/**
-	 * Calibrates the tracked CA points total, since the game doesn't expose it directly.
-	 */
 	public synchronized void setCombatAchievementPoints(long points)
 	{
 		if (profile != null && points >= 0)
@@ -2088,9 +1784,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Account counters read from game variables (quest points, collection log, clue counts).
-	 */
 	public synchronized void onCounter(String key, int value)
 	{
 		if (profile == null || value <= 0)
@@ -2193,9 +1886,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Records a pending clue completion with whatever parts of it have arrived.
-	 */
 	private void flushClue()
 	{
 		PendingClue c = pendingClue;
@@ -2286,7 +1976,6 @@ public class JourneyService implements RateSource
 
 	private void addEvent(JourneyEvent e, boolean screenshot)
 	{
-		// Already recorded (an event with a fixed ID)
 		if (!eventIds.add(e.getId()))
 		{
 			return;
@@ -2299,10 +1988,6 @@ public class JourneyService implements RateSource
 		changed(true);
 	}
 
-	/**
-	 * Adds memories the player recorded themselves, on any date. They go into the Journey but don't
-	 * change that day's stats, so nothing is counted twice. Items in them tick off item goals.
-	 */
 	public synchronized void addMemories(LocalDate date, List<JourneyEvent> events, List<LootItem> items)
 	{
 		if (profile == null || events.isEmpty())
@@ -2338,9 +2023,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Journey events that have a screenshot, by screenshot file name.
-	 */
 	public synchronized Map<String, JourneyEvent> screenshotEvents()
 	{
 		Map<String, JourneyEvent> result = new HashMap<>();
@@ -2357,9 +2039,6 @@ public class JourneyService implements RateSource
 		return result;
 	}
 
-	/**
-	 * A screenshot file was deleted: stop its Journey entries linking to it.
-	 */
 	public synchronized void forgetScreenshot(String name)
 	{
 		for (DayRecord d : days.values())
@@ -2376,9 +2055,6 @@ public class JourneyService implements RateSource
 		changed(true);
 	}
 
-	/**
-	 * Adds, changes or (with a blank note) removes the player's note on a Journey event.
-	 */
 	public synchronized void setEventNote(String date, String id, String note)
 	{
 		DayRecord d = days.get(date);
@@ -2407,9 +2083,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * A "[RuneJourney] ..." message in the chatbox.
-	 */
 	public void say(String message)
 	{
 		if (chatMessageManager == null)
@@ -2428,13 +2101,6 @@ public class JourneyService implements RateSource
 			.build());
 	}
 
-	// ------------------------------------------------------------------
-	// Goals
-	// ------------------------------------------------------------------
-
-	/**
-	 * Skill XP plus account counters, keyed as in {@link Counters}.
-	 */
 	private Map<String, Long> state()
 	{
 		Map<String, Long> state = new HashMap<>(xp);
@@ -2469,9 +2135,6 @@ public class JourneyService implements RateSource
 		return state();
 	}
 
-	/**
-	 * Minutes per kill: the player's observed average after a few kills, otherwise a typical time.
-	 */
 	public synchronized double minutesPerKill(String boss)
 	{
 		ObservedRate r = profile == null ? null : profile.getKillTimes().get(boss);
@@ -2511,9 +2174,6 @@ public class JourneyService implements RateSource
 		return minutes <= 0 ? -1 : (to - from) * minutes / 60;
 	}
 
-	/**
-	 * Boss names the player has kill counts for, followed by other known bosses.
-	 */
 	public synchronized List<String> knownBosses()
 	{
 		Set<String> names = new java.util.LinkedHashSet<>();
@@ -2530,9 +2190,6 @@ public class JourneyService implements RateSource
 		return new ArrayList<>(names);
 	}
 
-	/**
-	 * Coins and platinum tokens seen in the inventory, or in the bank when it's open.
-	 */
 	public synchronized void onCash(boolean bank, long gp)
 	{
 		if (profile == null)
@@ -2573,9 +2230,6 @@ public class JourneyService implements RateSource
 		int quantity;
 	}
 
-	/**
-	 * Active purchase goals whose target follows the item's GE price.
-	 */
 	public synchronized List<PurchaseRef> purchaseRefs()
 	{
 		List<PurchaseRef> refs = new ArrayList<>();
@@ -2594,9 +2248,6 @@ public class JourneyService implements RateSource
 		return refs;
 	}
 
-	/**
-	 * Updates a purchase goal's target when the item's price changes.
-	 */
 	public synchronized void setPurchaseTarget(String goalId, long target)
 	{
 		Goal g = findGoal(goalId);
@@ -2611,10 +2262,6 @@ public class JourneyService implements RateSource
 		changed(false);
 	}
 
-	/**
-	 * The saved method estimates use for a skill: the one the player chose, or with nothing chosen
-	 * (and saved rates in use) the one they trained most recently.
-	 */
 	private SavedMethod savedMethod(Skill skill)
 	{
 		List<SavedMethod> saved = profile == null ? null : profile.getSavedMethods().get(skill.name());
@@ -2630,9 +2277,6 @@ public class JourneyService implements RateSource
 		return config.usePersonalRates() ? Collections.max(saved, Comparator.comparingLong(SavedMethod::getLastUsed)) : null;
 	}
 
-	/**
-	 * Minutes of continuous training before a skill's rate is measured.
-	 */
 	public int rateSampleMinutes()
 	{
 		return Math.max(5, Math.min(60, config.rateSampleMinutes()));
@@ -2658,10 +2302,6 @@ public class JourneyService implements RateSource
 		return null;
 	}
 
-	/**
-	 * The training method used for estimates: the player's chosen one, otherwise the one matching
-	 * their configured intensity.
-	 */
 	private TrainingMethod method(Skill skill, long atXp)
 	{
 		String preferred = profile == null ? null : profile.getPreferredMethods().get(skill.name());
@@ -2715,9 +2355,6 @@ public class JourneyService implements RateSource
 		return m == null ? "Typical training" : m.getName();
 	}
 
-	/**
-	 * Method names the player can choose from for a skill, followed by the ones they saved.
-	 */
 	public synchronized List<String> methodChoices(Skill skill)
 	{
 		List<String> names = new ArrayList<>();
@@ -2755,22 +2392,13 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * A rate from 30+ minutes of training that the player hasn't saved or dismissed yet.
-	 */
 	@Value
 	public static class MethodOffer
 	{
 		Skill skill;
 		long xpPerHour;
 		long millis;
-		/**
-		 * Name to start from, such as the item being made, or null.
-		 */
 		String suggestedName;
-		/**
-		 * The skill's saved methods; saving under one of their names replaces it.
-		 */
 		List<String> savedNames;
 	}
 
@@ -2794,11 +2422,6 @@ public class JourneyService implements RateSource
 		return offers;
 	}
 
-	/**
-	 * Saves a detected rate as a training method, replacing any saved method with the same name.
-	 *
-	 * @return null on success, or why it couldn't be saved
-	 */
 	public synchronized String saveDetectedMethod(Skill skill, String name)
 	{
 		SavedMethod offer = profile == null ? null : profile.getDetectedMethods().get(skill.name());
@@ -2823,7 +2446,6 @@ public class JourneyService implements RateSource
 		m.setMillis(offer.getMillis());
 		markUsed(saved, m);
 		profile.getDetectedMethods().remove(skill.name());
-		// Plan with it, whether the player had picked a method or plans follow the newest saved one
 		if (profile.getPreferredMethods().containsKey(skill.name()))
 		{
 			profile.getPreferredMethods().put(skill.name(), displayName(m));
@@ -2834,9 +2456,6 @@ public class JourneyService implements RateSource
 		return null;
 	}
 
-	/**
-	 * Drops a detected rate without saving it. Training at a similar rate won't be offered again.
-	 */
 	public synchronized void dismissDetectedMethod(Skill skill)
 	{
 		SavedMethod offer = profile == null ? null : profile.getDetectedMethods().remove(skill.name());
@@ -2854,9 +2473,6 @@ public class JourneyService implements RateSource
 		changed(false);
 	}
 
-	/**
-	 * @return null on success, or why it couldn't be renamed
-	 */
 	public synchronized String renameSavedMethod(Skill skill, String oldName, String newName)
 	{
 		List<SavedMethod> saved = profile == null ? null : profile.getSavedMethods().get(skill.name());
@@ -2902,13 +2518,9 @@ public class JourneyService implements RateSource
 		changed(false);
 	}
 
-	/**
-	 * A tidied method name, or null if nothing is left of it.
-	 */
 	private static String cleanMethodName(String name)
 	{
 		String clean = name == null ? "" : name.trim().replaceAll("\\s+", " ");
-		// The marker is added when shown, so don't let it double up
 		if (clean.endsWith(SAVED_SUFFIX.trim()))
 		{
 			clean = clean.substring(0, clean.length() - SAVED_SUFFIX.trim().length()).trim();
@@ -2920,11 +2532,6 @@ public class JourneyService implements RateSource
 		return clean.isEmpty() ? null : clean;
 	}
 
-	/**
-	 * Applies edits to an existing goal and regenerates this week's plan.
-	 *
-	 * @return null on success, or a message explaining why the edit couldn't be applied
-	 */
 	public synchronized String updateGoal(Goal edited)
 	{
 		Goal goal = findGoal(edited.getId());
@@ -2955,7 +2562,6 @@ public class JourneyService implements RateSource
 		}
 		if (goal.getType() == GoalType.ITEMS && !edited.getItems().isEmpty())
 		{
-			// Keep obtained state for items that are still wanted
 			List<GoalItem> merged = new ArrayList<>();
 			for (GoalItem item : edited.getItems())
 			{
@@ -2978,9 +2584,6 @@ public class JourneyService implements RateSource
 		return g == null ? null : gson.fromJson(gson.toJson(g), Goal.class);
 	}
 
-	/**
-	 * @return null on success, or a message explaining why the goal couldn't be created
-	 */
 	public synchronized String createGoal(Goal goal)
 	{
 		if (profile == null || !baselineSet)
@@ -2997,7 +2600,6 @@ public class JourneyService implements RateSource
 			goal.setStartCount(current);
 			if (goal.isRelative())
 			{
-				// The dialog stores "N more" in targetCount
 				goal.setTargetCount(current + goal.getTargetCount());
 			}
 		}
@@ -3018,10 +2620,6 @@ public class JourneyService implements RateSource
 		return null;
 	}
 
-	/**
-	 * Marks matching items in item goals as obtained. Items match by id, or by name for sources
-	 * that only report names (collection log messages).
-	 */
 	private void itemsObtained(List<LootItem> items, String source)
 	{
 		long now = System.currentTimeMillis();
@@ -3058,9 +2656,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Manually ticks an item in an item goal on or off, e.g. for items obtained before RuneJourney.
-	 */
 	public synchronized void setItemObtained(String goalId, GoalItem which, boolean obtained)
 	{
 		Goal g = findGoal(goalId);
@@ -3153,10 +2748,6 @@ public class JourneyService implements RateSource
 		return (g.getQuantity() > 1 ? Format.number(g.getQuantity()) + " x " : "") + g.getItems().get(0).getName();
 	}
 
-	/**
-	 * A Grand Exchange slot changed. Only the change since the slot was last seen is counted, as the
-	 * game replays every offer on login.
-	 */
 	public synchronized void onGrandExchangeOffer(int slot, int itemId, String itemName, boolean buy, boolean empty,
 		int quantity, long spent)
 	{
@@ -3223,7 +2814,6 @@ public class JourneyService implements RateSource
 			{
 				completeGoal(g);
 			}
-			// One purchase completes one goal
 			break;
 		}
 		changed(false);
@@ -3441,18 +3031,11 @@ public class JourneyService implements RateSource
 			GoalPlanner.percent(goal, state()), weekTarget, weekAchieved);
 	}
 
-	// ------------------------------------------------------------------
-	// Reading history
-	// ------------------------------------------------------------------
-
 	public synchronized String playerName()
 	{
 		return profile == null ? null : profile.getPlayerName();
 	}
 
-	/**
-	 * Copies of the day records in a date range, for charts and exports.
-	 */
 	public synchronized List<DayRecord> daysBetween(LocalDate from, LocalDate to)
 	{
 		List<DayRecord> result = new ArrayList<>();
@@ -3463,10 +3046,6 @@ public class JourneyService implements RateSource
 		return result;
 	}
 
-	/**
-	 * A detached copy of a day, made field by field (much cheaper than a JSON round trip, which
-	 * matters because it's done while holding the lock the game thread also needs).
-	 */
 	private DayRecord copyDay(DayRecord d)
 	{
 		DayRecord c = new DayRecord(d.getDate());
@@ -3644,7 +3223,6 @@ public class JourneyService implements RateSource
 				}
 			}
 		}
-		// The start snapshot is the end of the day before the range, when available
 		Map.Entry<String, DayRecord> before = days.lowerEntry(from.toString());
 		while (before != null && before.getValue().getSnapshot().isEmpty())
 		{
@@ -3712,9 +3290,6 @@ public class JourneyService implements RateSource
 		return e.copy();
 	}
 
-	/**
-	 * Most recent days that contain matching events, newest first, with events newest first.
-	 */
 	public synchronized List<DayRecord> journeyDays(int limit, EventType.Category category, boolean highlightsOnly)
 	{
 		List<DayRecord> result = new ArrayList<>();
@@ -3747,10 +3322,6 @@ public class JourneyService implements RateSource
 		return result;
 	}
 
-	// ------------------------------------------------------------------
-	// Discover
-	// ------------------------------------------------------------------
-
 	public synchronized Map<String, List<Suggestion>> discover(int minutes)
 	{
 		Map<String, List<Suggestion>> sections = new LinkedHashMap<>();
@@ -3760,7 +3331,6 @@ public class JourneyService implements RateSource
 		}
 		String time = Format.hours(minutes / 60d);
 
-		// Goal work: skills and counters behind this week's plans, most behind first
 		List<Suggestion> todo = new ArrayList<>();
 		List<double[]> order = new ArrayList<>();
 		for (GoalProgress p : goalProgress())
@@ -3851,10 +3421,6 @@ public class JourneyService implements RateSource
 		return Counters.isMoney(counter) ? Counters.format(counter, value) : value + " " + Counters.unit(counter);
 	}
 
-	/**
-	 * Bosses, raids and clues that fit in the time available, favouring ones the player has done
-	 * recently and ones close to a kill count milestone.
-	 */
 	private List<Suggestion> bossing(int minutes)
 	{
 		Map<String, Integer> recent = new HashMap<>();
@@ -3897,7 +3463,6 @@ public class JourneyService implements RateSource
 			order.add(new double[]{score, result.size() - 1});
 		}
 
-		// Clues: suggest the tiers the player actually does
 		profile.getClueCounts().entrySet().stream()
 			.filter(e -> e.getValue() > 0)
 			.sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
@@ -4028,23 +3593,12 @@ public class JourneyService implements RateSource
 		return new HashMap<>(xp);
 	}
 
-	// ------------------------------------------------------------------
-	// Cloud sync
-	// ------------------------------------------------------------------
-
-	/**
-	 * A document this PC uploads: its own part of a day, or its copy of the profile, as JSON.
-	 */
 	@Value
 	public static class SyncDoc
 	{
 		String docKey;
 		String json;
 	}
-
-	// ------------------------------------------------------------------
-	// Public page
-	// ------------------------------------------------------------------
 
 	private static final int PUBLIC_EVENTS = 300;
 	private static final int PUBLIC_GOALS = 100;
@@ -4053,29 +3607,15 @@ public class JourneyService implements RateSource
 	private static final int PUBLIC_CLUE_TIERS = 10;
 	private static final int PUBLIC_MAX_COUNT = 100_000_000;
 	private static final long MAX_SKILL_XP = 200_000_000L;
-	/**
-	 * RuneScape names: up to 12 letters, numbers, spaces, hyphens and underscores.
-	 */
 	private static final java.util.regex.Pattern RSN = java.util.regex.Pattern.compile("(?=.*[A-Za-z0-9])[A-Za-z0-9 _-]{1,12}");
-	/**
-	 * Boss and clue names the website accepts.
-	 */
 	private static final java.util.regex.Pattern COUNTER_NAME = java.util.regex.Pattern.compile("[\\p{L}\\p{N} '’():&.,!+/-]{1,60}");
 
-	/**
-	 * What the account's public page shows, from everything on this PC (every PC's records
-	 * combined), with only the sections given. Notes and memories are left out unless "notes" is one.
-	 *
-	 * @param sections the website's names for the sections that are switched on
-	 * @return null if a different account is loaded, or its name isn't known yet
-	 */
 	public synchronized PublicSnapshot publicSnapshot(String key, int gen, Set<String> sections)
 	{
 		if (!isCurrent(key, gen) || profile.getPlayerName() == null)
 		{
 			return null;
 		}
-		// The game puts non-breaking spaces in some names
 		String name = profile.getPlayerName().replace(' ', ' ').trim();
 		if (!RSN.matcher(name).matches())
 		{
@@ -4154,9 +3694,6 @@ public class JourneyService implements RateSource
 		return s;
 	}
 
-	/**
-	 * The page's address part for the game mode an account key belongs to.
-	 */
 	static String world(String key)
 	{
 		if (key.endsWith("-seasonal"))
@@ -4170,10 +3707,6 @@ public class JourneyService implements RateSource
 		return key.endsWith("-fsw") ? "fresh-start" : "main";
 	}
 
-	/**
-	 * The newest Journey events. Memories and notes are the player's own words, so they're only
-	 * included when the player chose to show them.
-	 */
 	private List<PublicSnapshot.Event> publicTimeline(boolean notes)
 	{
 		List<PublicSnapshot.Event> out = new ArrayList<>();
@@ -4212,9 +3745,6 @@ public class JourneyService implements RateSource
 		return out;
 	}
 
-	/**
-	 * Goals in progress first, then completed ones, newest first.
-	 */
 	private List<PublicSnapshot.GoalRow> publicGoals()
 	{
 		List<GoalProgress> progress = goalProgress();
@@ -4258,9 +3788,6 @@ public class JourneyService implements RateSource
 		return text.length() <= max ? text : text.substring(0, max).trim();
 	}
 
-	/**
-	 * Slots in the whole collection log, as the game says.
-	 */
 	public synchronized void setCollectionLogTotal(int total)
 	{
 		if (profile != null && total > 0 && total != profile.getCollectionLogTotal())
@@ -4270,9 +3797,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * A detached copy of everything as it would be saved, sync parts included.
-	 */
 	synchronized JourneyStore.Loaded saved()
 	{
 		TreeMap<String, DayRecord> copy = new TreeMap<>();
@@ -4290,19 +3814,12 @@ public class JourneyService implements RateSource
 		return profile != null && key.equals(profileKey) && profile.getSync() != null;
 	}
 
-	/**
-	 * Whether the profile file was lost (e.g. damaged) while the days are still synced, so this PC's
-	 * copy of the profile has to come back from the cloud.
-	 */
 	public synchronized boolean needsRestore(String key)
 	{
 		return profile != null && key.equals(profileKey) && profile.getSync() == null
 			&& days.values().stream().anyMatch(d -> d.getSync() != null);
 	}
 
-	/**
-	 * Whether the loaded account has a journey worth keeping before switching to the cloud's.
-	 */
 	public synchronized boolean hasHistory()
 	{
 		if (profile == null)
@@ -4315,13 +3832,6 @@ public class JourneyService implements RateSource
 			|| (d != null && (d.getPlayMillis() > 15 * 60_000L || !d.getEvents().isEmpty()));
 	}
 
-	/**
-	 * Starts cloud sync for the loaded account: this PC's part of everything is what it has recorded.
-	 * Days and the profile that are already synced are left as they are.
-	 *
-	 * @param first whether this is the first PC to save the account, so its settings and goals win
-	 *              over any copies other PCs make before they've seen it
-	 */
 	public synchronized boolean link(String key, int gen, String me, Hlc hlc, boolean first)
 	{
 		if (!isCurrent(key, gen))
@@ -4351,10 +3861,6 @@ public class JourneyService implements RateSource
 		return true;
 	}
 
-	/**
-	 * Uploads all of this PC's parts again, e.g. to a cloud profile made afresh after the old one was
-	 * deleted.
-	 */
 	public synchronized void exportAll(String key, int gen)
 	{
 		if (isCurrent(key, gen) && profile.getSync() != null)
@@ -4364,10 +3870,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * Finds what changed but was never worked into this PC's part, e.g. when RuneLite closed before
-	 * the next upload.
-	 */
 	public synchronized void checkUnsynced(String key, int gen, String me)
 	{
 		if (!isCurrent(key, gen) || profile.getSync() == null)
@@ -4387,9 +3889,6 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	/**
-	 * This PC's own parts of whatever changed since they were last uploaded.
-	 */
 	public synchronized List<SyncDoc> exportOwn(String key, int gen, String me, Hlc hlc)
 	{
 		List<SyncDoc> docs = new ArrayList<>();
@@ -4410,7 +3909,6 @@ public class JourneyService implements RateSource
 		{
 			DayRecord d = days.get(date);
 			DaySlice own = d == null || d.getSync() == null ? null : d.getSync().getOwn();
-			// A day this PC has no part in is never uploaded, unless it had one before
 			if (own != null && (!isEmpty(own) || (before.get(date) != null && !isEmpty(before.get(date)))))
 			{
 				docs.add(new SyncDoc(Envelope.dayKey(date), syncGson.toJson(Envelope.day(own))));
@@ -4425,15 +3923,6 @@ public class JourneyService implements RateSource
 		return docs;
 	}
 
-	/**
-	 * Adds other PCs' parts. This PC's changes are worked into its own part first, so nothing
-	 * recorded here is lost when the days are combined again.
-	 *
-	 * @param profiles other PCs' copies of the profile, by device ID
-	 * @param byDate   other PCs' parts of days, by date then device ID
-	 * @param restore  take this PC's own copy of the profile from the cloud, as the local one was lost
-	 * @return whether they were added (false if a different account is loaded now)
-	 */
 	public synchronized boolean applyRemote(String key, int gen, String me, Hlc hlc, Map<String, ProfileSlice> profiles,
 		Map<String, Map<String, DaySlice>> byDate, boolean restore)
 	{
@@ -4441,7 +3930,6 @@ public class JourneyService implements RateSource
 		{
 			return false;
 		}
-		// Changes made here are stamped before this PC's clock moves past the other PCs'
 		foldLocal(me, hlc);
 		profiles.values().forEach(p -> hlc.observe(ProfileJoin.latestClock(p)));
 		byDate.values().forEach(parts -> parts.values().forEach(p ->
@@ -4484,7 +3972,6 @@ public class JourneyService implements RateSource
 		for (String date : changedDates)
 		{
 			rederive(date, me);
-			// Which PC's copy of a shared event is shown may have changed
 			if (days.get(date).getSync().getOwn() != null)
 			{
 				syncDays.add(date);
@@ -4526,10 +4013,6 @@ public class JourneyService implements RateSource
 		return true;
 	}
 
-	/**
-	 * "Use the cloud journey": forgets this PC's journey for the account (which should be backed up
-	 * first) so the cloud's can replace it.
-	 */
 	public synchronized boolean replaceWithCloud(String key, int gen, String me)
 	{
 		if (!isCurrent(key, gen))
@@ -4554,10 +4037,6 @@ public class JourneyService implements RateSource
 		return true;
 	}
 
-	/**
-	 * This PC's folder was copied from another PC that still uses its device ID. What this PC
-	 * recorded under that ID becomes the other PC's, and this PC carries on under a new one.
-	 */
 	public synchronized boolean forkDevice(String key, int gen, String oldId)
 	{
 		if (!isCurrent(key, gen))
@@ -4585,11 +4064,6 @@ public class JourneyService implements RateSource
 		return true;
 	}
 
-	/**
-	 * Works anything changed here into this PC's own parts.
-	 *
-	 * @return this PC's parts as they were before, for days that changed
-	 */
 	private Map<String, DaySlice> foldLocal(String me, Hlc hlc)
 	{
 		syncDays.addAll(dirtyDays);
@@ -4625,11 +4099,6 @@ public class JourneyService implements RateSource
 		return before;
 	}
 
-	/**
-	 * Trims XP counted twice across every synced day, then recombines the days that changed.
-	 *
-	 * @return the dates that changed, with the devices whose parts changed
-	 */
 	private Map<String, Set<String>> trimAll(String me)
 	{
 		Map<String, Map<String, DaySlice>> all = new HashMap<>();
@@ -4683,10 +4152,6 @@ public class JourneyService implements RateSource
 			&& slice.getScreenshotsDeleted().isEmpty() && DaySlices.matches(syncGson, slice.getDay(), Collections.emptyMap()));
 	}
 
-	// ------------------------------------------------------------------
-	// Helpers
-	// ------------------------------------------------------------------
-
 	private boolean isMilestoneLevel(int level)
 	{
 		return level == Experience.MAX_REAL_LEVEL || parseInts(config.milestoneLevels()).contains(level);
@@ -4739,7 +4204,6 @@ public class JourneyService implements RateSource
 			}
 			catch (NumberFormatException ignored)
 			{
-				// skip malformed entries
 			}
 		}
 		return out;

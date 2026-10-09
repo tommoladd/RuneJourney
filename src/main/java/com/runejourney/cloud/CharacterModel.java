@@ -1,34 +1,17 @@
 package com.runejourney.cloud;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.io.*;
+import java.nio.*;
 import java.util.Arrays;
 import java.util.zip.GZIPOutputStream;
-import lombok.AccessLevel;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import net.runelite.api.Model;
-import net.runelite.api.PlayerComposition;
-import net.runelite.api.TextureProvider;
+import lombok.*;
+import net.runelite.api.*;
 
-/**
- * A copy of the player's character model, as shown in game, for their public page.
- * <p>
- * It's sent gzipped, little-endian: "RJM1", the vertex and face counts (uint16 each), then x, y, z
- * per vertex (int16, game units with y pointing down), the three vertices of each face (uint16
- * each), an RGB colour for each corner of each face (3 bytes per corner) and the opacity of each
- * face (one byte, 255 for solid).
- */
 @AllArgsConstructor(access = AccessLevel.PACKAGE)
 public final class CharacterModel
 {
 	static final int MAX_VERTICES = 20_000;
 	static final int MAX_FACES = 20_000;
-	/**
-	 * How bright colours are, as the game's brightness setting (0.6 is the brightest, 0.9 the darkest).
-	 */
 	private static final double BRIGHTNESS = 0.7;
 
 	@Getter
@@ -40,18 +23,11 @@ public final class CharacterModel
 	@Getter
 	private final byte[] alphas;
 
-	/**
-	 * What the character looks like, as a hash: which items are worn, its kit and colours. Two
-	 * captures with the same look show the same character.
-	 */
 	public static String look(PlayerComposition c)
 	{
 		return CloudCrypto.sha256(c.getGender() + "|" + Arrays.toString(c.getEquipmentIds()) + "|" + Arrays.toString(c.getColors()));
 	}
 
-	/**
-	 * Copies the player's model, on the client thread. Null if it can't be shown.
-	 */
 	public static CharacterModel capture(Model model, TextureProvider textures)
 	{
 		int vertexCount = model.getVerticesCount();
@@ -76,11 +52,6 @@ public final class CharacterModel
 			model.getFaceTransparencies(), textureColors);
 	}
 
-	/**
-	 * Builds the copy from a lit model's arrays. Hidden and invisible faces are left out.
-	 *
-	 * @param textureColors per face, the texture's colour (HSL) for a textured face, else -1; or null
-	 */
 	static CharacterModel of(int vertexCount, float[] x, float[] y, float[] z,
 		int faceCount, int[] indices1, int[] indices2, int[] indices3,
 		int[] colors1, int[] colors2, int[] colors3, byte[] transparencies, int[] textureColors)
@@ -120,14 +91,12 @@ public final class CharacterModel
 			}
 			if (c == -1)
 			{
-				// Flat: one colour for the face
 				b = a;
 				c = a;
 			}
 			int texture = textureColors == null ? -1 : textureColors[f];
 			if (texture != -1)
 			{
-				// A textured face's colours are only how lit it is
 				a = lit(texture, a);
 				b = lit(texture, b);
 				c = lit(texture, c);
@@ -153,9 +122,6 @@ public final class CharacterModel
 		return alphas.length;
 	}
 
-	/**
-	 * The model to send, gzipped.
-	 */
 	public byte[] encode()
 	{
 		int vertexCount = vertices.length / 3;
@@ -182,7 +148,6 @@ public final class CharacterModel
 		}
 		catch (IOException e)
 		{
-			// Not from memory
 			throw new IllegalStateException(e);
 		}
 		return bytes.toByteArray();
@@ -193,9 +158,6 @@ public final class CharacterModel
 		return (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, Math.round(v)));
 	}
 
-	/**
-	 * A texture's colour, lit as much as the face is.
-	 */
 	private static int lit(int hsl, int light)
 	{
 		int lightness = (hsl & 127) * light >> 7;
@@ -210,9 +172,6 @@ public final class CharacterModel
 		out[at + 2] = (byte) rgb;
 	}
 
-	/**
-	 * The game's colour for an HSL value: 6 bits of hue, 3 of saturation and 7 of lightness.
-	 */
 	static int rgb(int hsl)
 	{
 		double hue = ((hsl >> 10) & 63) / 64.0 + 0.0078125;

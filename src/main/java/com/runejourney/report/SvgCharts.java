@@ -1,11 +1,7 @@
 package com.runejourney.report;
 
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
-/**
- * Inline SVG charts for exported HTML reports. Hovering a bar or point shows its value.
- */
 public final class SvgCharts
 {
 	private static final int W = 900;
@@ -129,9 +125,6 @@ public final class SvgCharts
 		return t;
 	}
 
-	/**
-	 * Horizontal bars, largest first.
-	 */
 	public static String bars(List<Analytics.Entry> entries, Unit unit, String color, int maxRows)
 	{
 		int rows = Math.min(maxRows, entries.size());

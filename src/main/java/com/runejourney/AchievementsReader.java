@@ -1,59 +1,27 @@
 package com.runejourney;
 
-import com.runejourney.service.JourneyService;
-import com.runejourney.service.PublicAchievements;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import javax.inject.Inject;
-import javax.inject.Singleton;
+import com.runejourney.service.*;
+import java.util.*;
+import javax.inject.*;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.Client;
-import net.runelite.api.EnumComposition;
-import net.runelite.api.GameState;
-import net.runelite.api.Quest;
-import net.runelite.api.StructComposition;
+import net.runelite.api.*;
 import net.runelite.api.gameval.DBTableID;
 import net.runelite.client.util.Text;
 
-/**
- * Reads every quest and combat task from the game for the account's public page: each quest's
- * state, and each task with whether it's done. Read once logged in, again when quest points or a
- * combat task changes, and every minute, which catches quests being started.
- */
 @Slf4j
 @Singleton
 class AchievementsReader
 {
-	// Not named by RuneLite
-	/**
-	 * Each tier's combat tasks, Easy to Grandmaster, as enums of task structs.
-	 */
 	private static final int[] ENUM_CA_TIERS = {3981, 3982, 3983, 3984, 3985, 3986};
-	/**
-	 * A task struct's ID (its bit in the completed-task varps), name, description, type and monster.
-	 */
 	private static final int PARAM_CA_ID = 1306;
 	private static final int PARAM_CA_NAME = 1308;
 	private static final int PARAM_CA_DESCRIPTION = 1309;
 	private static final int PARAM_CA_TYPE = 1311;
 	private static final int PARAM_CA_MONSTER = 1312;
-	/**
-	 * The highest task ID the completed-task varps can hold.
-	 */
 	private static final int MAX_TASK_ID = RuneJourneyPlugin.CA_TASK_VARPS.length * 32 - 1;
-	/**
-	 * Task types and monsters by ID, to their names. A task for no monster in particular is "None".
-	 */
 	private static final int ENUM_CA_TYPES = 3969;
 	private static final int ENUM_CA_MONSTERS = 3971;
-	/**
-	 * The quest table's type column for a miniquest (0 is a quest).
-	 */
 	private static final int QUEST_TYPE_MINIQUEST = 1;
 
 	private static final int REFRESH_TICKS = 100;
@@ -67,13 +35,7 @@ class AchievementsReader
 	@Inject
 	private RuneJourneyConfig config;
 
-	/**
-	 * Every task, not yet done: the same for every account, so read once.
-	 */
 	private List<PublicAchievements.CombatTask> tasks;
-	/**
-	 * Each quest's details from the quest table, read once.
-	 */
 	private Map<Quest, QuestInfo> questInfo;
 	private boolean due = true;
 	private int ticksSinceRead;
@@ -88,9 +50,6 @@ class AchievementsReader
 		Quest parent;
 	}
 
-	/**
-	 * Reads again on the next tick, such as when quest points or a combat task changes.
-	 */
 	void refresh()
 	{
 		due = true;
@@ -114,7 +73,6 @@ class AchievementsReader
 		}
 		catch (RuntimeException e)
 		{
-			// Should the game change how it stores them, the page keeps what it had
 			log.debug("Couldn't read quests and combat tasks", e);
 		}
 	}
@@ -126,7 +84,6 @@ class AchievementsReader
 			questInfo = readQuestInfo();
 		}
 		List<Quest> order = new ArrayList<>(questInfo.keySet());
-		// As the game lists them, by name, with sub-quests after their quest
 		order.sort(Comparator.<Quest, String>comparing(q -> sortName(top(q)))
 			.thenComparing(q -> questInfo.get(q).getParent() != null)
 			.thenComparingInt(Quest::getId));
@@ -151,7 +108,6 @@ class AchievementsReader
 		Map<Quest, QuestInfo> out = new EnumMap<>(Quest.class);
 		for (Quest q : Quest.values())
 		{
-			// A quest's ID is its row in the quest table
 			int row = q.getId();
 			try
 			{
@@ -249,14 +205,12 @@ class AchievementsReader
 				{
 					continue;
 				}
-				// A type or monster the enums don't list reads as empty
 				String type = text(types.getStringValue(s.getIntValue(PARAM_CA_TYPE)), 40);
 				String monster = text(monsters.getStringValue(s.getIntValue(PARAM_CA_MONSTER)), 100);
 				out.add(new PublicAchievements.CombatTask(
 					id,
 					name,
 					text(s.getStringValue(PARAM_CA_DESCRIPTION), 300),
-					// Its tier is the list it's in, Easy (1) to Grandmaster (6)
 					t + 1,
 					type.isEmpty() ? "Other" : type,
 					monster.isEmpty() ? "None" : monster,
@@ -266,10 +220,6 @@ class AchievementsReader
 		return out;
 	}
 
-	/**
-	 * Text from the game as the website takes it: without tags, line breaks or angle brackets, and
-	 * no longer than it allows.
-	 */
 	static String text(String value, int max)
 	{
 		if (value == null)

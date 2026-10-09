@@ -1,73 +1,23 @@
 package com.runejourney.sync;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.runejourney.model.ProfileData;
-import com.runejourney.model.ProfileSlice;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.OptionalLong;
-import java.util.Set;
-import java.util.TreeSet;
+import com.google.gson.*;
+import com.runejourney.model.*;
+import java.util.*;
 
-/**
- * The account's long-lived state, kept by several PCs. Every field has a fixed rule for combining
- * the PCs' copies, so the result is the same whatever order the copies arrive in.
- */
 public final class ProfileJoin
 {
 	enum Rule
 	{
-		/**
-		 * Stays on this PC: never uploaded, and kept as it is here.
-		 */
 		LOCAL,
-		/**
-		 * Only ever goes up: the highest wins.
-		 */
 		MAX,
-		/**
-		 * The earliest that's set.
-		 */
 		EARLIEST_SET,
-		/**
-		 * Once true, stays true.
-		 */
 		ANY,
-		/**
-		 * Highest for each key.
-		 */
 		MAP_MAX,
-		/**
-		 * Each PC counts its own share: added up for each key.
-		 */
 		MAP_ADD,
-		/**
-		 * The newest change wins, by logical clock.
-		 */
 		NEWEST,
-		/**
-		 * The newest change wins, for each key separately.
-		 */
 		MAP_NEWEST,
-		/**
-		 * The latest date.
-		 */
 		LATEST_DATE,
-		/**
-		 * The longest session and the date it was set.
-		 */
 		LONGEST_SESSION,
-		/**
-		 * See {@link GoalJoin}.
-		 */
 		GOALS
 	}
 
@@ -98,7 +48,6 @@ public final class ProfileJoin
 		RULES.put("holdings", Rule.MAP_NEWEST);
 		RULES.put("wealthParts", Rule.MAP_NEWEST);
 		RULES.put("bankValueKnown", Rule.ANY);
-		// Before holdings were tracked; cleared when loaded
 		RULES.put("bankValue", Rule.LOCAL);
 		RULES.put("inventoryValue", Rule.LOCAL);
 		RULES.put("equipmentValue", Rule.LOCAL);
@@ -124,11 +73,6 @@ public final class ProfileJoin
 	{
 	}
 
-	/**
-	 * Every PC's copy combined. Fields that stay on this PC are taken from {@code local}.
-	 *
-	 * @param gson a Gson that leaves out sync parts
-	 */
 	public static ProfileData combine(Gson gson, ProfileData local, Map<String, ProfileSlice> slices)
 	{
 		List<String> devices = new ArrayList<>();
@@ -229,13 +173,6 @@ public final class ProfileJoin
 		return gson.fromJson(out, ProfileData.class);
 	}
 
-	/**
-	 * This PC's new copy: anything changed here since it was last worked out is taken from
-	 * {@code view} and stamped with a new clock, so it wins over older changes on other PCs.
-	 *
-	 * @param view   the profile as it is now on this PC
-	 * @param slices every copy as of when this PC's copy was last worked out, including its own
-	 */
 	public static ProfileSlice reconcile(Gson gson, ProfileData view, String me, Map<String, ProfileSlice> slices, Hlc hlc)
 	{
 		ProfileSlice own = slices.get(me);
@@ -270,7 +207,6 @@ public final class ProfileJoin
 				case MAP_MAX:
 				case LATEST_DATE:
 				case LONGEST_SESSION:
-					// The combined value already includes every copy's
 					Trees.copy(v, out, Collections.singleton(field));
 					break;
 				case MAP_ADD:
@@ -326,10 +262,6 @@ public final class ProfileJoin
 		return next;
 	}
 
-	/**
-	 * Whether the profile is exactly the copies combined, i.e. nothing has changed since this PC's
-	 * copy was last worked out.
-	 */
 	public static boolean matches(Gson gson, ProfileData view, Map<String, ProfileSlice> slices)
 	{
 		JsonObject v = gson.toJsonTree(view).getAsJsonObject();
@@ -360,9 +292,6 @@ public final class ProfileJoin
 		return true;
 	}
 
-	/**
-	 * Every clock in a copy, so this PC's clock can move past them.
-	 */
 	public static long latestClock(ProfileSlice slice)
 	{
 		long latest = 0;
@@ -462,10 +391,6 @@ public final class ProfileJoin
 		return out;
 	}
 
-	/**
-	 * The value with the newest clock. With equal clocks (copies made before syncing), a value
-	 * beats no value, then the first device ID wins.
-	 */
 	private static JsonElement newest(List<String> devices, Map<String, JsonObject> trees, Map<String, ProfileSlice> slices,
 		String clockKey, String field)
 	{

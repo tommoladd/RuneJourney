@@ -1,14 +1,8 @@
 package com.runejourney.planner;
 
 import com.runejourney.util.Format;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
-/**
- * Keys for account counters (kill counts, clues, CA points...). Counters live in the same state map
- * as skill XP so the planner can treat both the same way.
- */
 public final class Counters
 {
 	public static final String KC_PREFIX = "kc:";
@@ -18,17 +12,8 @@ public final class Counters
 	public static final String CA_TASKS = "ca:tasks";
 	public static final String QUEST_POINTS = "qp";
 	public static final String COLLECTION_LOG = "clog";
-	/**
-	 * Coins and platinum tokens in the inventory and bank, in gp.
-	 */
 	public static final String CASH = "cash";
-	/**
-	 * Net worth in gp: bank, inventory and equipment at GE prices.
-	 */
 	public static final String WEALTH = "wealth";
-	/**
-	 * Obtained items on a collection log page, e.g. "clogpage:Vorkath".
-	 */
 	public static final String CLOG_PAGE_PREFIX = "clogpage:";
 
 	public static final List<String> CLUE_TIERS = Collections.unmodifiableList(
@@ -113,9 +98,6 @@ public final class Counters
 		}
 	}
 
-	/**
-	 * A counter value for display, e.g. "1,284" or "412.5m gp" for money.
-	 */
 	public static String format(String key, long value)
 	{
 		if (isMoney(key))
@@ -125,9 +107,6 @@ public final class Counters
 		return Format.number(value);
 	}
 
-	/**
-	 * Plural unit, e.g. "kills" or "clues".
-	 */
 	public static String unit(String key)
 	{
 		if (isKc(key))

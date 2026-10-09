@@ -1,45 +1,22 @@
 package com.runejourney.ui;
 
 import com.runejourney.RuneJourneyConfig;
-import com.runejourney.model.ClogItem;
-import com.runejourney.model.Goal;
-import com.runejourney.model.GoalItem;
-import com.runejourney.model.GoalType;
-import com.runejourney.planner.Counters;
-import com.runejourney.planner.GoalPlanner;
-import com.runejourney.planner.GoalProgress;
-import com.runejourney.planner.Skills;
-import com.runejourney.service.JourneyService;
-import com.runejourney.service.SessionView;
+import com.runejourney.model.*;
+import com.runejourney.planner.*;
+import com.runejourney.service.*;
 import com.runejourney.util.Format;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.GridLayout;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.Comparator;
+import java.awt.*;
+import java.time.*;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.function.LongFunction;
 import javax.inject.Inject;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComboBox;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.FontManager;
 
-/**
- * Goal list, and a detail view for one goal with its plan.
- */
 class GoalsTab extends RefreshableTab
 {
 	private final JourneyService service;
@@ -51,9 +28,6 @@ class GoalsTab extends RefreshableTab
 	private final JButton newGoal;
 	private final List<JComboBox<?>> combos = new ArrayList<>();
 
-	/**
-	 * Goal currently open in the detail view, or null for the list.
-	 */
 	private String openGoalId;
 	private int lastVersion = -1;
 
@@ -117,7 +91,6 @@ class GoalsTab extends RefreshableTab
 		{
 			return;
 		}
-		// Don't rebuild under an open dropdown
 		for (JComboBox<?> c : combos)
 		{
 			if (c.isPopupVisible())
@@ -152,10 +125,6 @@ class GoalsTab extends RefreshableTab
 		}
 		rebuild();
 	}
-
-	// ------------------------------------------------------------------
-	// List
-	// ------------------------------------------------------------------
 
 	private void list(List<GoalProgress> goals)
 	{
@@ -247,9 +216,6 @@ class GoalsTab extends RefreshableTab
 		return card;
 	}
 
-	/**
-	 * Statuses only mean something with a target date, or when the goal is ready or finished.
-	 */
 	private static boolean showStatus(GoalProgress p)
 	{
 		GoalProgress.Status s = p.getStatus();
@@ -277,14 +243,10 @@ class GoalsTab extends RefreshableTab
 		return name;
 	}
 
-	/**
-	 * e.g. "BEHIND ... 86 days left", with the status in its colour.
-	 */
 	private JPanel statusLine(GoalProgress p)
 	{
 		if (!showStatus(p))
 		{
-			// No date: just the estimate, when there is one
 			return p.getProjectedCompletion() == null ? null
 				: Ui.row(Ui.small("Estimated finish", Ui.MUTED), Ui.small(Format.date(p.getProjectedCompletion()), Ui.MUTED));
 		}
@@ -325,10 +287,6 @@ class GoalsTab extends RefreshableTab
 		}
 		return Format.compact(p.getXpRemaining()) + " XP" + time;
 	}
-
-	// ------------------------------------------------------------------
-	// Detail
-	// ------------------------------------------------------------------
 
 	private void detail(GoalProgress p)
 	{
@@ -443,9 +401,6 @@ class GoalsTab extends RefreshableTab
 		return card;
 	}
 
-	/**
-	 * Plain-language "am I on track?" answer. Presents the numbers rather than judging the goal.
-	 */
 	private static String statusExplanation(GoalProgress p)
 	{
 		String eta = p.getProjectedCompletion() == null ? null : Format.date(p.getProjectedCompletion());
@@ -506,7 +461,6 @@ class GoalsTab extends RefreshableTab
 			}
 			else if (g.getType() != GoalType.MONEY && g.getType() != GoalType.PURCHASE && g.getType() != GoalType.ITEMS)
 			{
-				// Sessions measure XP and kills, which don't apply to money or item goals
 				JButton start = Ui.button("Start session", () ->
 				{
 					service.startSession(g.getId());
@@ -561,9 +515,6 @@ class GoalsTab extends RefreshableTab
 		return actions;
 	}
 
-	/**
-	 * "12 / 50 kills" or "412m / 1.2b gp".
-	 */
 	private static String countText(String key, long have, long target)
 	{
 		if (Counters.isMoney(key))
@@ -844,18 +795,11 @@ class GoalsTab extends RefreshableTab
 		return card;
 	}
 
-	/**
-	 * Level with one decimal of progress, e.g. 90.7.
-	 */
 	private static String level(double exact)
 	{
 		return String.format(Locale.ENGLISH, "%.1f", Math.floor(exact * 10) / 10);
 	}
 
-	/**
-	 * How last week's plan went: each planned skill's result in words, best first, and a single
-	 * line for anything else trained that still moved the goal forward.
-	 */
 	private JPanel lastWeek(Goal g)
 	{
 		JPanel card = Ui.section("Last week");
@@ -880,7 +824,6 @@ class GoalsTab extends RefreshableTab
 			{
 				planned.add(new AbstractMap.SimpleEntry<>(s, v));
 			}
-			// This week started where last week ended, so taking off last week's XP gives where it began
 			else if (v[1] > 0 && GoalPlanner.helps(g, s, g.getWeekStartXp().getOrDefault(s.name(), Long.MAX_VALUE) - v[1]))
 			{
 				also.add(s.getName() + " +" + Format.compact(v[1]));
@@ -907,11 +850,6 @@ class GoalsTab extends RefreshableTab
 		return card;
 	}
 
-	/**
-	 * One planned target from last week: the verdict beside its name, the numbers beneath.
-	 *
-	 * @param v [target, achieved]
-	 */
 	private static JPanel weekResult(JLabel name, long[] v, LongFunction<String> format)
 	{
 		long target = v[0];
@@ -948,7 +886,6 @@ class GoalsTab extends RefreshableTab
 		block.setBorder(new EmptyBorder(4, 0, 0, 0));
 		block.add(Ui.row(name, Ui.small(verdict, color)));
 		JLabel detail = Ui.small(numbers, Ui.MUTED);
-		// Line up with the name rather than the icon
 		detail.setBorder(new EmptyBorder(0, name.getIcon() == null ? 0 : name.getIcon().getIconWidth() + name.getIconTextGap(), 0, 0));
 		block.add(detail);
 		return block;

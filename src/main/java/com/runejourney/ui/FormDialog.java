@@ -1,35 +1,11 @@
 package com.runejourney.ui;
 
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Dialog;
-import java.awt.Dimension;
-import java.awt.GraphicsConfiguration;
-import java.awt.GridLayout;
-import java.awt.Insets;
-import java.awt.Rectangle;
-import java.awt.Toolkit;
-import java.awt.Window;
+import java.awt.*;
 import java.awt.event.KeyEvent;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import javax.swing.JComponent;
-import javax.swing.JDialog;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.KeyStroke;
-import javax.swing.ScrollPaneConstants;
-import javax.swing.SwingUtilities;
+import java.util.function.*;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 
-/**
- * A resizable OK/Cancel dialog for forms whose fields change. It re-fits itself whenever the form
- * asks, never grows taller than the screen (the form scrolls instead), and stays open when the
- * form reports a validation error.
- */
 final class FormDialog<T>
 {
 	private static final int MIN_WIDTH = 400;
@@ -73,13 +49,6 @@ final class FormDialog<T>
 			KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
 	}
 
-	/**
-	 * Shows the form. {@code build} turns it into a result, throwing IllegalArgumentException with a
-	 * message for the player when something needs fixing. {@code refitHook} receives a callback the
-	 * form should run whenever it shows or hides fields.
-	 *
-	 * @return the built result, or null if cancelled
-	 */
 	static <T> T show(Component parent, String title, JComponent form, Supplier<T> build, Consumer<Runnable> refitHook)
 	{
 		FormDialog<T> d = new FormDialog<>(parent, title, form, build);
@@ -103,9 +72,6 @@ final class FormDialog<T>
 		}
 	}
 
-	/**
-	 * Resizes to fit the form, within the usable screen area, keeping the dialog on screen.
-	 */
 	private void refit()
 	{
 		scroll.getViewport().getView().revalidate();
@@ -121,7 +87,6 @@ final class FormDialog<T>
 		int height = Math.min(size.height, maxHeight);
 		dialog.setSize(width, height);
 
-		// Growing downwards can push the bottom off screen; nudge it back up
 		Rectangle b = dialog.getBounds();
 		int bottom = screen.y + screen.height - insets.bottom;
 		if (b.y + b.height > bottom)
