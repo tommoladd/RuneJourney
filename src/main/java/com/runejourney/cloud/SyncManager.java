@@ -11,8 +11,6 @@ import com.runejourney.service.PublicCollectionLog;
 import com.runejourney.service.PublicSnapshot;
 import com.runejourney.sync.Envelope;
 import com.runejourney.sync.Hlc;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -22,7 +20,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,7 +31,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
@@ -66,29 +62,16 @@ public class SyncManager
 	 */
 	public static final String SERVER = "https://runejourney.org";
 	static final String JOURNEY = "journey";
-	static final String MEDIA = "media";
-	static final String THUMB = "thumb";
 	/**
 	 * The public page section that shows the character model.
 	 */
 	static final String CHARACTER = "character";
-	/**
-	 * Screenshot backup. Off for now: the cloud keeps journeys only, and the website turns
-	 * screenshot uploads down. The code stays for when it comes back.
-	 */
-	static final boolean SCREENSHOTS = false;
-	private static final String MEDIA_PREFIX = "media:";
 	private static final long HOLD_MILLIS = 8_000;
 	private static final long PLAYING_EVERY = 2 * 60_000L;
 	private static final long IDLE_EVERY = 5 * 60_000L;
 	private static final long MIN_BACKOFF = 60_000L;
 	private static final long MAX_BACKOFF = 15 * 60_000L;
 	private static final int MAX_FILES = 50;
-	private static final int MEDIA_PER_COMMIT = 5;
-	/**
-	 * Screenshot commits per sync, so a big backlog doesn't hold up the next login's pull.
-	 */
-	private static final int MEDIA_COMMITS_PER_SYNC = 3;
 	/**
 	 * While the account is played, its public page is published at most this often.
 	 */
@@ -113,16 +96,8 @@ public class SyncManager
 	 * The public page section with quests and the collection log.
 	 */
 	static final String COLLECTION = "collection";
-	/**
-	 * The server's limit for one screenshot, less room for encryption.
-	 */
-	private static final int MAX_MEDIA_BYTES = 5 * 1024 * 1024 - 1024;
 	private static final int MAX_DOWNLOAD = 6 * 1024 * 1024;
 	private static final int MAX_DOCUMENT = 16 * 1024 * 1024;
-	/**
-	 * Roughly how much smaller the JPEG copy is than the PNG, for estimating a backup's size.
-	 */
-	private static final double JPEG_RATIO = 0.17;
 
 	private final JourneyService service;
 	private final CloudApi api;
@@ -132,7 +107,6 @@ public class SyncManager
 	private final boolean developerMode;
 	private final Hiscores.Lookup hiscores;
 	private final SyncLog syncLog;
-	private boolean screenshotsOn = SCREENSHOTS;
 
 	/**
 	 * Called when the status changes, from any thread.
@@ -153,12 +127,7 @@ public class SyncManager
 	private byte[] dataKey;
 	private final Map<String, SyncState> states = new HashMap<>();
 	private final Map<String, Hlc> clocks = new HashMap<>();
-	private final Map<String, MediaIndex> indexes = new HashMap<>();
 	private final Map<String, Map<String, String>> outboxes = new HashMap<>();
-	/**
-	 * Account to [screenshots not yet offered for backup, their estimated cloud bytes, when counted].
-	 */
-	private final Map<String, long[]> backlogs = new HashMap<>();
 	private final Set<String> resolved = new HashSet<>();
 	private final Map<String, Boolean> savedElsewhere = new HashMap<>();
 	/**
@@ -191,11 +160,8 @@ public class SyncManager
 	private boolean connecting;
 	private boolean updateNeeded;
 	private String problem;
-	private Api.Media usage;
-	private boolean mediaFull;
 
 	private volatile CloudStatus status = CloudStatus.builder().connection(CloudStatus.Connection.OFF).prompt(CloudStatus.Prompt.NONE).build();
-	private volatile Map<String, MediaIndex.Entry> mediaView = Collections.emptyMap();
 	private volatile boolean ready;
 	private volatile String holdKey;
 	private volatile long holdUntil;
@@ -238,30 +204,6 @@ public class SyncManager
 		this.developerMode = developerMode;
 		this.hiscores = hiscores;
 		this.syncLog = syncLog;
-	}
-
-	/**
-	 * Screenshots are backed up: while {@link #SCREENSHOTS} is on, and the player wants them to be.
-	 */
-	private boolean screenshots()
-	{
-		return screenshotsOn && config.cloudScreenshots();
-	}
-
-	/**
-	 * For tests of screenshot backup, while it's off.
-	 */
-	void enableScreenshots()
-	{
-		screenshotsOn = true;
-	}
-
-	/**
-	 * Where the sync log is, to open it from the side panel.
-	 */
-	public String syncLogLocation()
-	{
-		return files.syncLogLocation();
 	}
 
 	/**
@@ -323,14 +265,6 @@ public class SyncManager
 	public CloudStatus status()
 	{
 		return status;
-	}
-
-	/**
-	 * Media ID to what's known about the loaded account's screenshots in the cloud.
-	 */
-	public Map<String, MediaIndex.Entry> media()
-	{
-		return mediaView;
 	}
 
 	/**
@@ -428,32 +362,6 @@ public class SyncManager
 				// Sent now, rather than with the next sync
 				queue(() -> withLock(key, key.equals(service.getProfileKey()), () -> publishCharacter(key, state(key))));
 			}
-		});
-	}
-
-	/**
-	 * A screenshot was saved: queues it to back up.
-	 */
-	public void onScreenshot(String key, String name, String title)
-	{
-		submit(() ->
-		{
-			SyncState st = states.get(key);
-			if (!usable() || !screenshots() || st == null || !st.isLinked())
-			{
-				return;
-			}
-			MediaIndex index = index(key);
-			MediaIndex.Entry e = index.getEntries().computeIfAbsent(mediaId(name), k -> new MediaIndex.Entry());
-			e.setName(name);
-			e.setTitle(title);
-			e.setTime(System.currentTimeMillis());
-			if (e.getState() == null)
-			{
-				e.setState(mediaFull ? MediaIndex.State.WAITING : MediaIndex.State.QUEUED);
-			}
-			saveIndex(key);
-			publish();
 		});
 	}
 
@@ -579,52 +487,7 @@ public class SyncManager
 		saveState(key);
 		save();
 		publish();
-		return syncAccount(key).thenRun(() -> askBacklog(key));
-	}
-
-	/**
-	 * The player's answer to "Back up your existing screenshots?".
-	 */
-	public void backlog(boolean backUp)
-	{
-		submit(() ->
-		{
-			String key = active;
-			if (key == null)
-			{
-				return;
-			}
-			MediaIndex index = index(key);
-			index.setBacklogAsked(true);
-			backlogs.remove(key);
-			try
-			{
-				for (JourneyStore.ScreenshotFile f : files.listScreenshots(key))
-				{
-					if (f.isCloudCopy())
-					{
-						continue;
-					}
-					MediaIndex.Entry e = index.getEntries().computeIfAbsent(mediaId(f.getName()), k -> new MediaIndex.Entry());
-					if (e.getState() == null)
-					{
-						e.setName(f.getName());
-						e.setTime(f.getModified());
-						e.setState(backUp ? MediaIndex.State.QUEUED : MediaIndex.State.LOCAL);
-					}
-				}
-			}
-			catch (IOException e)
-			{
-				log.warn("Unable to list RuneJourney screenshots", e);
-			}
-			saveIndex(key);
-			if (backUp)
-			{
-				syncNow();
-			}
-			publish();
-		});
+		return syncAccount(key);
 	}
 
 	/**
@@ -682,67 +545,6 @@ public class SyncManager
 		});
 	}
 
-	/**
-	 * "Remove from cloud": the screenshot stays on this PC.
-	 */
-	public CompletableFuture<Void> removeFromCloud(String key, String name)
-	{
-		return onExecutor(() ->
-		{
-			SyncState st = state(key);
-			String id = mediaId(name);
-			if (!usable() || st.getProfileId() == null)
-			{
-				return CompletableFuture.<Void>completedFuture(null);
-			}
-			return api.deleteMedia(session(), st.getProfileId(), id).thenRunAsync(() ->
-			{
-				MediaIndex.Entry e = index(key).getEntries().get(id);
-				if (e != null)
-				{
-					e.setInCloud(false);
-					e.setState(MediaIndex.State.LOCAL);
-				}
-				saveIndex(key);
-				mediaFull = false;
-				publish();
-			}, executor);
-		});
-	}
-
-	/**
-	 * Opens a screenshot that's only in the cloud (taken on another PC), keeping a copy on this PC.
-	 */
-	public CompletableFuture<BufferedImage> openFromCloud(String key, String name)
-	{
-		return onExecutor(() ->
-		{
-			SyncState st = state(key);
-			if (!usable() || st.getProfileId() == null)
-			{
-				throw new CompletionException(new IOException("Cloud sync isn't connected"));
-			}
-			String id = mediaId(name);
-			return api.media(session(), st.getProfileId(), id)
-				.thenCompose(found ->
-				{
-					if (found.getMedia() == null)
-					{
-						throw new CompletionException(new IOException("That screenshot isn't in the cloud"));
-					}
-					return api.downloadFile(session(), st.getProfileId(), found.getMedia(), MAX_DOWNLOAD);
-				})
-				.thenApplyAsync(bytes -> unchecked(() ->
-				{
-					byte[] plain = CloudCrypto.open(dataKey, creds.getDataKeyId(), bytes,
-						CloudCrypto.binding(creds.getUserUuid(), st.getProfileId(), MEDIA, MEDIA_PREFIX + id, null));
-					MediaCodec.Decoded decoded = MediaCodec.decode(gson, plain);
-					files.writeCloudCopy(key, name, decoded.getJpeg());
-					return ImageIO.read(new ByteArrayInputStream(decoded.getJpeg()));
-				}), executor);
-		});
-	}
-
 	// ------------------------------------------------------------------
 	// Connecting
 	// ------------------------------------------------------------------
@@ -794,7 +596,6 @@ public class SyncManager
 			creds.setKeyRejected(false);
 			creds.setRegistered(false);
 			dataKey = key;
-			usage = me.getMedia();
 			saveCredentials();
 			return ensureDevice();
 		}), executor).whenCompleteAsync((v, e) ->
@@ -959,19 +760,8 @@ public class SyncManager
 				saveState(key);
 				save();
 				publish();
-				return syncAccount(key).thenRun(() -> askBacklog(key));
+				return syncAccount(key);
 			}, executor);
-	}
-
-	private void askBacklog(String key)
-	{
-		submit(() ->
-		{
-			if (screenshots() && !index(key).isBacklogAsked())
-			{
-				publish();
-			}
-		});
 	}
 
 	/**
@@ -1052,10 +842,8 @@ public class SyncManager
 	{
 		states.remove(key);
 		clocks.remove(key);
-		indexes.remove(key);
 		outboxes.remove(key);
 		resolved.remove(key);
-		backlogs.remove(key);
 	}
 
 	/**
@@ -1187,7 +975,7 @@ public class SyncManager
 	}
 
 	/**
-	 * Pulls other PCs' changes, then pushes this PC's, then backs up screenshots.
+	 * Pulls other PCs' changes, then pushes this PC's, then publishes the public page.
 	 */
 	private CompletableFuture<Void> syncAccount(String key)
 	{
@@ -1201,12 +989,10 @@ public class SyncManager
 			int gen = service.getGeneration();
 			note("sync started for {}{}", key, key.equals(service.getProfileKey()) && service.playerName() != null ? " (" + service.playerName() + ")" : "");
 			boolean restore = st.isRestoring();
-			return refreshUsage()
-				.thenComposeAsync(v -> ensureDevice(), executor)
+			return ensureDevice()
 				.thenComposeAsync(v -> ensureProfile(key, st), executor)
-				.thenComposeAsync(v -> pull(key, st, gen, restore, mediaCheck(key, st)), executor)
+				.thenComposeAsync(v -> pull(key, st, gen, restore), executor)
 				.thenComposeAsync(v -> push(key, st, gen), executor)
-				.thenComposeAsync(v -> uploadMedia(key, st, MEDIA_COMMITS_PER_SYNC), executor)
 				.thenComposeAsync(v -> publishPage(key, st, takePublishNow()), executor)
 				.thenComposeAsync(v -> publishCharacter(key, st), executor)
 				.thenComposeAsync(v -> publishCollectionLog(key, st), executor)
@@ -1235,26 +1021,6 @@ public class SyncManager
 		boolean now = publishNow;
 		publishNow = false;
 		return now;
-	}
-
-	private CompletableFuture<Void> refreshUsage()
-	{
-		return attempt(() -> api.me(session())).thenAcceptAsync(me ->
-		{
-			usage = me.getMedia();
-			if (mediaFull && usage != null && usage.getUsedBytes() + usage.getReservedBytes() < usage.getQuotaBytes())
-			{
-				// Room again: screenshots waiting for it can go
-				mediaFull = false;
-				indexes.forEach((k, index) -> index.getEntries().values().forEach(e ->
-				{
-					if (e.getState() == MediaIndex.State.WAITING)
-					{
-						e.setState(MediaIndex.State.QUEUED);
-					}
-				}));
-			}
-		}, executor);
 	}
 
 	/**
@@ -1403,19 +1169,6 @@ public class SyncManager
 
 	private CompletableFuture<Void> sendPage(String key, SyncState st, Api.PublicSettings settings, PublicSnapshot page)
 	{
-		// Only screenshots in the cloud can be shown; one backed up later is shown from then on
-		if (page.getTimeline() != null)
-		{
-			MediaIndex index = index(key);
-			page.getTimeline().forEach(e ->
-			{
-				MediaIndex.Entry media = e.getScreenshot() == null ? null : index.getEntries().get(e.getScreenshot());
-				if (media == null || !media.isInCloud())
-				{
-					e.setScreenshot(null);
-				}
-			});
-		}
 		fit(page);
 		// Hashed before the time is set, so only real changes count
 		String hash = CloudCrypto.sha256(gson.toJson(page));
@@ -1739,111 +1492,26 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		Envelope.Doc doc;
 	}
 
-	/**
-	 * Before a pull: if the account's screenshots were last checked against a different cloud
-	 * profile, the pull starts from the beginning and notes which screenshots the cloud has, so the
-	 * rest can go up again.
-	 *
-	 * @return the set to note them in, or null if there's no need
-	 */
-	private Set<String> mediaCheck(String key, SyncState st)
-	{
-		if (st.getProfileId() == null || st.getProfileId().equals(index(key).getProfileId()))
-		{
-			return null;
-		}
-		st.setCursor(0);
-		return new HashSet<>();
-	}
-
-	/**
-	 * After a pull from the beginning: screenshots this PC thought were in the cloud, but aren't,
-	 * go up again if they're on this PC, and are forgotten if they aren't.
-	 */
-	private void reconcileMedia(String key, SyncState st, Set<String> inCloud)
-	{
-		Set<String> onPc = new HashSet<>();
-		try
-		{
-			for (JourneyStore.ScreenshotFile f : files.listScreenshots(key))
-			{
-				onPc.add(f.getName());
-			}
-		}
-		catch (IOException e)
-		{
-			// Checked again next sync
-			log.debug("Unable to list screenshots", e);
-			return;
-		}
-		MediaIndex index = index(key);
-		int requeued = 0;
-		for (Iterator<Map.Entry<String, MediaIndex.Entry>> it = index.getEntries().entrySet().iterator(); it.hasNext(); )
-		{
-			Map.Entry<String, MediaIndex.Entry> entry = it.next();
-			MediaIndex.Entry e = entry.getValue();
-			if (inCloud.contains(entry.getKey()) || (!e.isInCloud() && e.getState() != MediaIndex.State.UPLOADED))
-			{
-				continue;
-			}
-			e.setInCloud(false);
-			e.setCloudBytes(0);
-			if (e.getName() != null && onPc.contains(e.getName()))
-			{
-				e.setState(mediaFull ? MediaIndex.State.WAITING : MediaIndex.State.QUEUED);
-				requeued++;
-			}
-			else
-			{
-				deleteCloudCopy(key, entry.getKey(), e);
-				it.remove();
-			}
-		}
-		index.setProfileId(st.getProfileId());
-		if (requeued > 0)
-		{
-			note("{} screenshots weren't in the cloud, so go up again", requeued);
-		}
-	}
-
-	private CompletableFuture<Void> pull(String key, SyncState st, int gen, boolean restore, Set<String> inCloud)
+	private CompletableFuture<Void> pull(String key, SyncState st, int gen, boolean restore)
 	{
 		return attempt(() -> api.changes(session(), st.getProfileId(), st.getCursor())).thenComposeAsync(page ->
 		{
 			List<CompletableFuture<Fetched>> docs = new ArrayList<>();
-			List<CompletableFuture<Void>> thumbs = new ArrayList<>();
 			for (Api.Change c : page.getChanges())
 			{
-				if (JOURNEY.equals(c.getKind()))
+				if (!JOURNEY.equals(c.getKind()) || c.isDeleted() || (!restore && me().equals(c.getDeviceId())))
 				{
-					if (c.isDeleted() || (!restore && me().equals(c.getDeviceId())))
-					{
-						continue;
-					}
-					if (!Envelope.readable(c.getSchema()))
-					{
-						updateNeeded = true;
-						throw new StopSync("A newer RuneJourney saved this account. Update RuneJourney to keep syncing.");
-					}
-					docs.add(api.downloadFile(session(), st.getProfileId(), c.getId(), MAX_DOWNLOAD)
-						.thenApplyAsync(bytes -> new Fetched(c, openDoc(st, c, bytes)), executor));
+					continue;
 				}
-				else
+				if (!Envelope.readable(c.getSchema()))
 				{
-					if (inCloud != null && !c.isDeleted() && c.getDocKey() != null && c.getDocKey().startsWith(MEDIA_PREFIX))
-					{
-						inCloud.add(c.getDocKey().substring(MEDIA_PREFIX.length()));
-					}
-					CompletableFuture<Void> thumb = mediaChange(key, st, c);
-					if (thumb != null)
-					{
-						thumbs.add(thumb);
-					}
+					updateNeeded = true;
+					throw new StopSync("A newer RuneJourney saved this account. Update RuneJourney to keep syncing.");
 				}
+				docs.add(api.downloadFile(session(), st.getProfileId(), c.getId(), MAX_DOWNLOAD)
+					.thenApplyAsync(bytes -> new Fetched(c, openDoc(st, c, bytes)), executor));
 			}
-			List<CompletableFuture<?>> all = new ArrayList<>(docs);
-			all.addAll(thumbs);
-			return CompletableFuture.allOf(all.toArray(new CompletableFuture[0])).thenComposeAsync(v ->
+			return CompletableFuture.allOf(docs.toArray(new CompletableFuture[0])).thenComposeAsync(v ->
 			{
 				Map<String, ProfileSlice> profiles = new HashMap<>();
 				Map<String, Map<String, DaySlice>> days = new HashMap<>();
@@ -1867,10 +1535,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 					throw new StopSync(null);
 				}
 				st.setCursor(page.getCursor());
-				if (!page.isMore() && inCloud != null)
-				{
-					reconcileMedia(key, st, inCloud);
-				}
 				if (page.getProfile() != null)
 				{
 					publicSettings(st, page.getProfile().getPublicSettings());
@@ -1881,12 +1545,11 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 					st.setRestoring(false);
 				}
 				saveState(key);
-				saveIndex(key);
 				if (!profiles.isEmpty() || !days.isEmpty())
 				{
 					save();
 				}
-				return page.isMore() ? pull(key, st, gen, restore, inCloud) : CompletableFuture.completedFuture(null);
+				return page.isMore() ? pull(key, st, gen, restore) : CompletableFuture.completedFuture(null);
 			}, executor);
 		}, executor);
 	}
@@ -1966,7 +1629,7 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 			byte[] sealed = unchecked(() -> CloudCrypto.seal(dataKey, creds.getDataKeyId(),
 				CloudCrypto.gzip(json.getBytes(StandardCharsets.UTF_8)),
 				CloudCrypto.binding(creds.getUserUuid(), st.getProfileId(), JOURNEY, docKey, me())));
-			prepared.add(new Prepared(JOURNEY, docKey, sealed, CloudCrypto.sha256(json), null));
+			prepared.add(new Prepared(JOURNEY, docKey, sealed, CloudCrypto.sha256(json)));
 		}
 		return upload(key, st, prepared).thenComposeAsync(v -> drain(key, st), executor);
 	}
@@ -1981,10 +1644,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		 * For a journey document, the hash of its JSON.
 		 */
 		String docHash;
-		/**
-		 * For a screenshot or thumbnail, its media ID.
-		 */
-		String mediaId;
 	}
 
 	/**
@@ -2025,10 +1684,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 				if (p.getDocHash() != null)
 				{
 					pc.getDocs().put(p.getDocKey(), p.getDocHash());
-				}
-				if (p.getMediaId() != null && MEDIA.equals(p.getKind()))
-				{
-					pc.getMedia().add(p.getMediaId());
 				}
 			}
 			st.setPending(pc);
@@ -2085,20 +1740,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 			}
 		});
 		writeOutbox(key, outbox);
-		if (!pc.getMedia().isEmpty())
-		{
-			MediaIndex index = index(key);
-			for (String id : pc.getMedia())
-			{
-				MediaIndex.Entry e = index.getEntries().get(id);
-				if (e != null)
-				{
-					e.setState(MediaIndex.State.UPLOADED);
-					e.setInCloud(true);
-				}
-			}
-			saveIndex(key);
-		}
 		saveState(key);
 		publish();
 	}
@@ -2148,202 +1789,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 			}), executor);
 		}
 		return chain;
-	}
-
-	// ------------------------------------------------------------------
-	// Screenshots
-	// ------------------------------------------------------------------
-
-	public static String mediaId(String name)
-	{
-		return CloudCrypto.sha256("media:" + name).substring(0, 32);
-	}
-
-	/**
-	 * A screenshot changed in the cloud. Thumbnails of ones taken on other PCs are fetched for the
-	 * gallery.
-	 *
-	 * @return the thumbnail download, or null if there's nothing to fetch
-	 */
-	private CompletableFuture<Void> mediaChange(String key, SyncState st, Api.Change c)
-	{
-		if (c.getDocKey() == null || !c.getDocKey().startsWith(MEDIA_PREFIX))
-		{
-			return null;
-		}
-		String id = c.getDocKey().substring(MEDIA_PREFIX.length());
-		MediaIndex index = index(key);
-		MediaIndex.Entry e = index.getEntries().get(id);
-		if (c.isDeleted())
-		{
-			if (e != null)
-			{
-				e.setInCloud(false);
-				if (e.getState() == MediaIndex.State.UPLOADED)
-				{
-					e.setState(MediaIndex.State.LOCAL);
-				}
-				deleteCloudCopy(key, id, e);
-			}
-			return null;
-		}
-		if (e == null)
-		{
-			e = new MediaIndex.Entry();
-			e.setState(MediaIndex.State.UPLOADED);
-			index.getEntries().put(id, e);
-		}
-		e.setInCloud(true);
-		if (MEDIA.equals(c.getKind()))
-		{
-			e.setCloudBytes(c.getSize());
-		}
-		// Thumbnails are only needed for screenshots taken on other PCs
-		if (!THUMB.equals(c.getKind()) || me().equals(c.getDeviceId())
-			|| (e.getName() != null && hasThumb(key, id)))
-		{
-			return null;
-		}
-		MediaIndex.Entry entry = e;
-		return api.downloadFile(session(), st.getProfileId(), c.getId(), MAX_DOWNLOAD).thenAcceptAsync(bytes ->
-		{
-			try
-			{
-				byte[] plain = CloudCrypto.open(dataKey, creds.getDataKeyId(), bytes,
-					CloudCrypto.binding(creds.getUserUuid(), st.getProfileId(), THUMB, c.getDocKey(), null));
-				MediaCodec.Decoded thumb = MediaCodec.decode(gson, plain);
-				MediaCodec.Header h = thumb.getHeader();
-				if (entry.getName() == null && h != null && JourneyStore.isScreenshotName(h.getName()))
-				{
-					entry.setName(h.getName());
-					entry.setTitle(h.getTitle());
-					entry.setTime(h.getTime());
-				}
-				files.writeThumb(key, id, thumb.getJpeg());
-			}
-			catch (IOException | GeneralSecurityException ex)
-			{
-				note("couldn't read a screenshot thumbnail", ex);
-			}
-		}, executor).exceptionally(ex -> null);
-	}
-
-	private boolean hasThumb(String key, String id)
-	{
-		try
-		{
-			return files.readThumb(key, id) != null;
-		}
-		catch (IOException e)
-		{
-			return false;
-		}
-	}
-
-	/**
-	 * Removed from the cloud: other PCs drop the thumbnail and any copy they downloaded. The
-	 * original on the PC that took it stays.
-	 */
-	private void deleteCloudCopy(String key, String id, MediaIndex.Entry e)
-	{
-		try
-		{
-			files.deleteThumb(key, id);
-			if (e.getName() != null)
-			{
-				files.deleteCloudCopy(key, e.getName());
-			}
-		}
-		catch (IOException ex)
-		{
-			log.debug("Unable to delete a cloud copy", ex);
-		}
-	}
-
-	private CompletableFuture<Void> uploadMedia(String key, SyncState st, int commits)
-	{
-		if (!screenshots() || mediaFull || commits <= 0 || st.isRestoring())
-		{
-			return CompletableFuture.completedFuture(null);
-		}
-		MediaIndex index = index(key);
-		List<Map.Entry<String, MediaIndex.Entry>> queued = index.getEntries().entrySet().stream()
-			.filter(e -> e.getValue().getState() == MediaIndex.State.QUEUED && e.getValue().getName() != null)
-			.sorted(Comparator.comparingLong((Map.Entry<String, MediaIndex.Entry> e) -> e.getValue().getTime()).reversed())
-			.limit(MEDIA_PER_COMMIT)
-			.collect(Collectors.toList());
-		if (queued.isEmpty())
-		{
-			return CompletableFuture.completedFuture(null);
-		}
-
-		List<Prepared> prepared = new ArrayList<>();
-		for (Map.Entry<String, MediaIndex.Entry> q : queued)
-		{
-			String id = q.getKey();
-			MediaIndex.Entry e = q.getValue();
-			BufferedImage image;
-			try
-			{
-				image = files.readScreenshot(key, e.getName());
-			}
-			catch (IOException ex)
-			{
-				image = null;
-			}
-			if (image == null)
-			{
-				// Deleted before it could go
-				index.getEntries().remove(id);
-				continue;
-			}
-			MediaCodec.Header h = new MediaCodec.Header();
-			h.setName(e.getName());
-			h.setTitle(e.getTitle());
-			h.setTime(e.getTime());
-			BufferedImage img = image;
-			byte[] full = unchecked(() -> CloudCrypto.seal(dataKey, creds.getDataKeyId(), MediaCodec.full(gson, img, h, MAX_MEDIA_BYTES),
-				CloudCrypto.binding(creds.getUserUuid(), st.getProfileId(), MEDIA, MEDIA_PREFIX + id, null)));
-			byte[] thumb = unchecked(() -> CloudCrypto.seal(dataKey, creds.getDataKeyId(), MediaCodec.thumb(gson, img, h),
-				CloudCrypto.binding(creds.getUserUuid(), st.getProfileId(), THUMB, MEDIA_PREFIX + id, null)));
-			e.setCloudBytes(full.length + thumb.length);
-			prepared.add(new Prepared(MEDIA, MEDIA_PREFIX + id, full, null, id));
-			prepared.add(new Prepared(THUMB, MEDIA_PREFIX + id, thumb, null, id));
-		}
-		saveIndex(key);
-		if (prepared.isEmpty())
-		{
-			return uploadMedia(key, st, commits - 1);
-		}
-		return upload(key, st, prepared).handleAsync((v, e) ->
-		{
-			Throwable cause = e == null ? null : CloudException.cause(e);
-			if (cause instanceof CloudException && ((CloudException) cause).is("media_quota_exceeded"))
-			{
-				// Journey sync carries on; screenshots wait until there's room
-				mediaFull = true;
-				Api.Error details = ((CloudException) cause).getDetails();
-				if (details != null && details.getMedia() != null)
-				{
-					usage = details.getMedia();
-				}
-				index.getEntries().values().forEach(x ->
-				{
-					if (x.getState() == MediaIndex.State.QUEUED)
-					{
-						x.setState(MediaIndex.State.WAITING);
-					}
-				});
-				saveIndex(key);
-				publish();
-				return CompletableFuture.<Void>completedFuture(null);
-			}
-			if (cause != null)
-			{
-				throw new CompletionException(cause);
-			}
-			return uploadMedia(key, st, commits - 1);
-		}, executor).thenCompose(f -> f);
 	}
 
 	// ------------------------------------------------------------------
@@ -2442,39 +1887,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		catch (IOException e)
 		{
 			log.warn("Unable to save RuneJourney sync state", e);
-		}
-	}
-
-	private MediaIndex index(String key)
-	{
-		return indexes.computeIfAbsent(key, k ->
-		{
-			try
-			{
-				return files.readMediaIndex(k);
-			}
-			catch (IOException e)
-			{
-				log.warn("Unable to read RuneJourney screenshot index", e);
-				return new MediaIndex();
-			}
-		});
-	}
-
-	private void saveIndex(String key)
-	{
-		MediaIndex index = indexes.get(key);
-		if (index == null)
-		{
-			return;
-		}
-		try
-		{
-			files.writeMediaIndex(key, index);
-		}
-		catch (IOException e)
-		{
-			log.warn("Unable to save RuneJourney screenshot index", e);
 		}
 	}
 
@@ -2578,16 +1990,9 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 			.problem(problem)
 			.updateNeeded(updateNeeded)
 			.syncing(syncing)
-			.screenshots(screenshots())
-			.mediaFull(mediaFull)
 			.prompt(CloudStatus.Prompt.NONE);
-		if (usage != null)
-		{
-			b.mediaUsed(usage.getUsedBytes()).mediaQuota(usage.getQuotaBytes());
-		}
 
 		String key = active;
-		Map<String, MediaIndex.Entry> view = Collections.emptyMap();
 		String wantsCharacter = null;
 		if (key != null && key.equals(service.getProfileKey()))
 		{
@@ -2637,34 +2042,8 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 				{
 					b.prompt(CloudStatus.Prompt.CHOOSE);
 				}
-				else if (isLinked(key) && screenshots() && !index(key).isBacklogAsked())
-				{
-					long[] backlog = backlog(key);
-					if (backlog[0] > 0)
-					{
-						b.prompt(CloudStatus.Prompt.BACKLOG).backlogCount((int) backlog[0]).backlogBytes(backlog[1]);
-					}
-					else
-					{
-						index(key).setBacklogAsked(true);
-						saveIndex(key);
-					}
-				}
-			}
-			// While screenshots aren't backed up, the gallery shows none as being in the cloud
-			if (screenshots())
-			{
-				MediaIndex index = index(key);
-				b.mediaWaiting((int) index.getEntries().values().stream()
-					.filter(e -> e.getState() == MediaIndex.State.QUEUED || e.getState() == MediaIndex.State.WAITING).count());
-				view = new HashMap<>();
-				for (Map.Entry<String, MediaIndex.Entry> e : index.getEntries().entrySet())
-				{
-					view.put(e.getKey(), copy(e.getValue()));
-				}
 			}
 		}
-		mediaView = Collections.unmodifiableMap(view);
 		characterFor = wantsCharacter;
 		status = b.build();
 		Runnable listener = onChange;
@@ -2672,51 +2051,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 		{
 			listener.run();
 		}
-	}
-
-	/**
-	 * [count, estimated cloud bytes] of screenshots taken before connecting.
-	 */
-	private long[] backlog(String key)
-	{
-		long[] cached = backlogs.get(key);
-		if (cached != null && System.currentTimeMillis() - cached[2] < 60_000)
-		{
-			return cached;
-		}
-		long count = 0;
-		long bytes = 0;
-		try
-		{
-			MediaIndex index = index(key);
-			for (JourneyStore.ScreenshotFile f : files.listScreenshots(key))
-			{
-				if (!f.isCloudCopy() && !index.getEntries().containsKey(mediaId(f.getName())))
-				{
-					count++;
-					bytes += (long) (f.getSize() * JPEG_RATIO);
-				}
-			}
-		}
-		catch (IOException e)
-		{
-			log.debug("Unable to list screenshots", e);
-		}
-		long[] result = {count, bytes, System.currentTimeMillis()};
-		backlogs.put(key, result);
-		return result;
-	}
-
-	private static MediaIndex.Entry copy(MediaIndex.Entry e)
-	{
-		MediaIndex.Entry c = new MediaIndex.Entry();
-		c.setName(e.getName());
-		c.setTitle(e.getTitle());
-		c.setTime(e.getTime());
-		c.setState(e.getState());
-		c.setInCloud(e.isInCloud());
-		c.setCloudBytes(e.getCloudBytes());
-		return c;
 	}
 
 	/**
@@ -2825,18 +2159,6 @@ note("quests and combat tasks published: {} quests, {} tasks", achievements.getQ
 			f.completeExceptionally(e);
 			return f;
 		}
-	}
-
-	private <T> CompletableFuture<T> onExecutor(java.util.function.Supplier<CompletableFuture<T>> work)
-	{
-		Executor exec = executor;
-		if (exec == null)
-		{
-			CompletableFuture<T> f = new CompletableFuture<>();
-			f.completeExceptionally(new IOException("Cloud sync isn't running"));
-			return f;
-		}
-		return CompletableFuture.supplyAsync(() -> attempt(work), exec).thenCompose(f -> f);
 	}
 
 	/**

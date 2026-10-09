@@ -14,14 +14,12 @@ public class CloudException extends IOException
 	 * The API's error code, e.g. "sequence_mismatch", or null when there isn't one.
 	 */
 	private final String code;
-	private final Api.Error details;
 
-	public CloudException(int status, String code, String message, Api.Error details)
+	public CloudException(int status, String code, String message)
 	{
 		super(message != null ? message : "HTTP " + status);
 		this.status = status;
 		this.code = code;
-		this.details = details;
 	}
 
 	public boolean is(String code)

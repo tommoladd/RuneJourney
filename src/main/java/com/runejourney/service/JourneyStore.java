@@ -5,7 +5,6 @@ import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
 import com.runejourney.cloud.CloudCredentials;
 import com.runejourney.cloud.CloudFiles;
-import com.runejourney.cloud.MediaIndex;
 import com.runejourney.cloud.SyncState;
 import com.runejourney.model.DayRecord;
 import com.runejourney.model.ProfileData;
@@ -23,10 +22,8 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -44,8 +41,8 @@ import net.runelite.client.util.Filepath;
  * <pre>
  *   &lt;profileKey&gt;/profile.json
  *   &lt;profileKey&gt;/days/yyyy-MM-dd.json
- *   &lt;profileKey&gt;/screenshots/*.png             (and *.jpg copies downloaded from the cloud)
- *   &lt;profileKey&gt;/sync/state.json, outbox.json, media.json, lock, thumbs/*.jpg
+ *   &lt;profileKey&gt;/screenshots/*.png
+ *   &lt;profileKey&gt;/sync/state.json, outbox.json, lock
  *   &lt;profileKey&gt;/backup-&lt;time&gt;/                (the journey before it was replaced by the cloud's)
  *   cloud/credentials.json
  * </pre>
@@ -65,9 +62,7 @@ public class JourneyStore implements CloudFiles
 	private static final String SYNC_DIR = "sync";
 	private static final String STATE_FILE = "state.json";
 	private static final String OUTBOX_FILE = "outbox.json";
-	private static final String MEDIA_FILE = "media.json";
 	private static final String LOCK_FILE = "lock";
-	private static final String THUMBS_DIR = "thumbs";
 	private static final Type OUTBOX_TYPE = new TypeToken<Map<String, String>>()
 	{
 	}.getType();
@@ -273,39 +268,21 @@ public class JourneyStore implements CloudFiles
 		}
 	}
 
-	/**
-	 * A screenshot by the name it was taken with, or the copy downloaded from the cloud if this PC
-	 * doesn't have the original.
-	 */
-	@Override
 	public BufferedImage readScreenshot(String profileKey, String name) throws IOException
 	{
 		if (!isScreenshotName(name))
 		{
 			return null;
 		}
-		Filepath dir = profileDir(profileKey).joinSegment(SCREENSHOT_DIR);
-		Filepath file = dir.joinSegment(name);
+		Filepath file = profileDir(profileKey).joinSegment(SCREENSHOT_DIR).joinSegment(name);
 		if (!file.exists())
 		{
-			file = dir.joinSegment(cloudCopyName(name));
-			if (!file.exists())
-			{
-				return null;
-			}
+			return null;
 		}
 		try (InputStream in = file.openInputStream())
 		{
 			return ImageIO.read(in);
 		}
-	}
-
-	/**
-	 * Cloud copies are JPEGs saved beside where the original would be.
-	 */
-	private static String cloudCopyName(String name)
-	{
-		return name.substring(0, name.length() - ".png".length()) + ".jpg";
 	}
 
 	@Value
@@ -317,10 +294,6 @@ public class JourneyStore implements CloudFiles
 		 * Epoch millis the file was last written.
 		 */
 		long modified;
-		/**
-		 * Only a copy downloaded from the cloud is on this PC.
-		 */
-		boolean cloudCopy;
 	}
 
 	/**
@@ -334,82 +307,42 @@ public class JourneyStore implements CloudFiles
 	}
 
 	/**
-	 * Every screenshot saved for a profile, newest first. Copies downloaded from the cloud are listed
-	 * by the name they were taken with.
+	 * Every screenshot saved for a profile, newest first.
 	 */
-	@Override
 	public List<ScreenshotFile> listScreenshots(String profileKey) throws IOException
 	{
 		Filepath dir = profileDir(profileKey).joinSegment(SCREENSHOT_DIR);
 		if (!dir.isDirectory())
 		{
-			return new ArrayList<>();
+			return new java.util.ArrayList<>();
 		}
 		List<Filepath> files;
 		try (Stream<Filepath> walk = dir.walk(1))
 		{
-			files = walk.collect(Collectors.toList());
+			files = walk.filter(f -> isScreenshotName(f.getFileName())).collect(Collectors.toList());
 		}
-		Set<String> names = new HashSet<>();
-		files.forEach(f -> names.add(f.getFileName()));
-		List<ScreenshotFile> result = new ArrayList<>();
+		List<ScreenshotFile> result = new java.util.ArrayList<>();
 		for (Filepath f : files)
 		{
-			String name = f.getFileName();
-			if (isScreenshotName(name))
-			{
-				result.add(new ScreenshotFile(name, f.size(), f.getLastModifiedTime().toMillis(), false));
-			}
-			else if (name.endsWith(".jpg"))
-			{
-				String original = name.substring(0, name.length() - ".jpg".length()) + ".png";
-				if (isScreenshotName(original) && !names.contains(original))
-				{
-					result.add(new ScreenshotFile(original, f.size(), f.getLastModifiedTime().toMillis(), true));
-				}
-			}
+			result.add(new ScreenshotFile(f.getFileName(), f.size(), f.getLastModifiedTime().toMillis()));
 		}
 		result.sort((a, b) -> Long.compare(b.getModified(), a.getModified()));
 		return result;
 	}
 
-	/**
-	 * Deletes a screenshot, and any copy of it downloaded from the cloud.
-	 */
 	public boolean deleteScreenshot(String profileKey, String name) throws IOException
 	{
 		if (!isScreenshotName(name))
 		{
 			return false;
 		}
-		Filepath dir = profileDir(profileKey).joinSegment(SCREENSHOT_DIR);
-		Filepath file = dir.joinSegment(name);
-		Filepath copy = dir.joinSegment(cloudCopyName(name));
-		boolean existed = file.exists() || copy.exists();
-		file.deleteIfExists();
-		copy.deleteIfExists();
-		return existed;
-	}
-
-	@Override
-	public void writeCloudCopy(String profileKey, String name, byte[] jpeg) throws IOException
-	{
-		if (!isScreenshotName(name))
+		Filepath file = profileDir(profileKey).joinSegment(SCREENSHOT_DIR).joinSegment(name);
+		if (!file.exists())
 		{
-			throw new IOException("Not a screenshot name");
+			return false;
 		}
-		Filepath dir = profileDir(profileKey).joinSegment(SCREENSHOT_DIR);
-		dir.createDirectories();
-		dir.joinSegment(cloudCopyName(name)).write(jpeg);
-	}
-
-	@Override
-	public void deleteCloudCopy(String profileKey, String name) throws IOException
-	{
-		if (isScreenshotName(name))
-		{
-			profileDir(profileKey).joinSegment(SCREENSHOT_DIR).joinSegment(cloudCopyName(name)).deleteIfExists();
-		}
+		file.delete();
+		return true;
 	}
 
 	// ------------------------------------------------------------------
@@ -431,14 +364,6 @@ public class JourneyStore implements CloudFiles
 	public void writeCredentials(CloudCredentials credentials) throws IOException
 	{
 		writeAtomic(root().joinSegment(CLOUD_DIR), CREDENTIALS_FILE, gson.toJson(credentials));
-	}
-
-	@Override
-	public String syncLogLocation()
-	{
-		Filepath dir = root().joinSegment(CLOUD_DIR);
-		Filepath log = dir.joinSegment(SYNC_LOG);
-		return (log.exists() ? log : dir).toString();
 	}
 
 	@Override
@@ -477,19 +402,6 @@ public class JourneyStore implements CloudFiles
 	public void writeOutbox(String profileKey, Map<String, String> docs) throws IOException
 	{
 		writeAtomic(syncDir(profileKey), OUTBOX_FILE, gson.toJson(docs));
-	}
-
-	@Override
-	public MediaIndex readMediaIndex(String profileKey) throws IOException
-	{
-		MediaIndex index = readJson(syncDir(profileKey).joinSegment(MEDIA_FILE), MediaIndex.class);
-		return index != null ? index : new MediaIndex();
-	}
-
-	@Override
-	public void writeMediaIndex(String profileKey, MediaIndex index) throws IOException
-	{
-		writeAtomic(syncDir(profileKey), MEDIA_FILE, gson.toJson(index));
 	}
 
 	@Override
@@ -619,51 +531,6 @@ public class JourneyStore implements CloudFiles
 				log.debug("Unable to close lock file", e);
 			}
 		}
-	}
-
-	@Override
-	public byte[] readThumb(String profileKey, String mediaId) throws IOException
-	{
-		Filepath f = thumbFile(profileKey, mediaId);
-		if (f == null || !f.exists())
-		{
-			return null;
-		}
-		try (InputStream in = f.openInputStream())
-		{
-			return in.readAllBytes();
-		}
-	}
-
-	@Override
-	public void writeThumb(String profileKey, String mediaId, byte[] jpeg) throws IOException
-	{
-		Filepath f = thumbFile(profileKey, mediaId);
-		if (f != null)
-		{
-			f.getParent().createDirectories();
-			f.write(jpeg);
-		}
-	}
-
-	@Override
-	public void deleteThumb(String profileKey, String mediaId) throws IOException
-	{
-		Filepath f = thumbFile(profileKey, mediaId);
-		if (f != null)
-		{
-			f.deleteIfExists();
-		}
-	}
-
-	private Filepath thumbFile(String profileKey, String mediaId)
-	{
-		// Media IDs are made by RuneJourney: 32 hex digits
-		if (mediaId == null || !mediaId.matches("[0-9a-f]{32}"))
-		{
-			return null;
-		}
-		return syncDir(profileKey).joinSegment(THUMBS_DIR).joinSegment(mediaId + ".jpg");
 	}
 
 	/**

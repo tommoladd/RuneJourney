@@ -34,7 +34,6 @@ public final class Api
 		private User user;
 		@SerializedName("data_key")
 		private DataKey dataKey;
-		private Media media;
 	}
 
 	@Data
@@ -51,17 +50,6 @@ public final class Api
 	{
 		private int id;
 		private String key;
-	}
-
-	@Data
-	public static class Media
-	{
-		@SerializedName("quota_bytes")
-		private long quotaBytes;
-		@SerializedName("used_bytes")
-		private long usedBytes;
-		@SerializedName("reserved_bytes")
-		private long reservedBytes;
 	}
 
 	@Data
@@ -216,16 +204,6 @@ public final class Api
 		private int seq;
 	}
 
-	@Data
-	public static class MediaFiles
-	{
-		/**
-		 * The IDs of the screenshot's files, to fetch them by; null if it has none.
-		 */
-		private Long media;
-		private Long thumb;
-	}
-
 	/**
 	 * Why the API turned a request down.
 	 */
@@ -235,6 +213,5 @@ public final class Api
 		private String error;
 		private String message;
 		private Integer seq;
-		private Media media;
 	}
 }

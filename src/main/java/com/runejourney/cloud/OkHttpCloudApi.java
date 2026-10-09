@@ -9,8 +9,6 @@ import com.runejourney.service.PublicSnapshot;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -154,18 +152,6 @@ class OkHttpCloudApi implements CloudApi
 				return out.toByteArray();
 			}
 		});
-	}
-
-	@Override
-	public CompletableFuture<Api.MediaFiles> media(Api.Session s, String profileId, String mediaId)
-	{
-		return json(get(s, "profiles/" + profileId + "/media/" + mediaId), Api.MediaFiles.class);
-	}
-
-	@Override
-	public CompletableFuture<Void> deleteMedia(Api.Session s, String profileId, String mediaId)
-	{
-		return empty(request(s, "profiles/" + profileId + "/media/" + mediaId).delete().build());
 	}
 
 	@Override
@@ -392,6 +378,6 @@ class OkHttpCloudApi implements CloudApi
 		{
 			// Not an API error, e.g. the storage's own XML
 		}
-		return new CloudException(status, error != null ? error.getError() : null, error != null ? error.getMessage() : null, error);
+		return new CloudException(status, error != null ? error.getError() : null, error != null ? error.getMessage() : null);
 	}
 }

@@ -2,7 +2,6 @@ package com.runejourney.service;
 
 import com.google.gson.Gson;
 import com.runejourney.RuneJourneyConfig;
-import com.runejourney.cloud.SyncManager;
 import com.runejourney.model.ClogItem;
 import com.runejourney.model.DayRecord;
 import com.runejourney.model.DaySlice;
@@ -4122,7 +4121,7 @@ public class JourneyService implements RateSource
 		}
 		if (sections.contains("timeline"))
 		{
-			s.setTimeline(publicTimeline(sections.contains("notes"), sections.contains("screenshots")));
+			s.setTimeline(publicTimeline(sections.contains("notes")));
 		}
 		if (sections.contains("goals"))
 		{
@@ -4172,11 +4171,10 @@ public class JourneyService implements RateSource
 	}
 
 	/**
-	 * The newest Journey events. Memories and notes are the player's own words, and screenshots can
-	 * show other players, so they're only included when the player chose to show them. A screenshot
-	 * is given by its media ID; the caller leaves out any that aren't in the cloud.
+	 * The newest Journey events. Memories and notes are the player's own words, so they're only
+	 * included when the player chose to show them.
 	 */
-	private List<PublicSnapshot.Event> publicTimeline(boolean notes, boolean screenshots)
+	private List<PublicSnapshot.Event> publicTimeline(boolean notes)
 	{
 		List<PublicSnapshot.Event> out = new ArrayList<>();
 		for (DayRecord d : days.descendingMap().values())
@@ -4203,10 +4201,6 @@ public class JourneyService implements RateSource
 				{
 					p.setNote(clip(e.getNote(), 500));
 					p.setMemory(e.isMemory() ? Boolean.TRUE : null);
-				}
-				if (screenshots && e.getScreenshot() != null)
-				{
-					p.setScreenshot(SyncManager.mediaId(e.getScreenshot()));
 				}
 				out.add(p);
 				if (out.size() >= PUBLIC_EVENTS)

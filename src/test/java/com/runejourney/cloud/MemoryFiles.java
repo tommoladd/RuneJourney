@@ -2,13 +2,10 @@ package com.runejourney.cloud;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-import com.runejourney.service.JourneyStore;
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 
 /**
  * A PC's cloud sync files, kept in memory, as one RuneLite window sees them. Everything is copied
@@ -22,14 +19,10 @@ class MemoryFiles implements CloudFiles
 		String credentials;
 		final Map<String, String> states = new HashMap<>();
 		final Map<String, String> outboxes = new HashMap<>();
-		final Map<String, String> indexes = new HashMap<>();
 		/**
 		 * Account to the window holding its lock file.
 		 */
 		final Map<String, MemoryFiles> lockFiles = new HashMap<>();
-		final Map<String, BufferedImage> screenshots = new TreeMap<>();
-		final Map<String, byte[]> cloudCopies = new HashMap<>();
-		final Map<String, byte[]> thumbs = new HashMap<>();
 		int backups;
 		final StringBuilder syncLog = new StringBuilder();
 	}
@@ -37,9 +30,6 @@ class MemoryFiles implements CloudFiles
 	private final Gson gson = new Gson();
 	private final Disk disk;
 	private final Map<String, List<String>> holds = new HashMap<>();
-	final Map<String, BufferedImage> screenshots;
-	final Map<String, byte[]> cloudCopies;
-	final Map<String, byte[]> thumbs;
 	final StringBuilder syncLog;
 
 	MemoryFiles()
@@ -50,9 +40,6 @@ class MemoryFiles implements CloudFiles
 	private MemoryFiles(Disk disk)
 	{
 		this.disk = disk;
-		this.screenshots = disk.screenshots;
-		this.cloudCopies = disk.cloudCopies;
-		this.thumbs = disk.thumbs;
 		this.syncLog = disk.syncLog;
 	}
 
@@ -73,7 +60,6 @@ class MemoryFiles implements CloudFiles
 		d.credentials = disk.credentials;
 		d.states.putAll(disk.states);
 		d.outboxes.putAll(disk.outboxes);
-		d.indexes.putAll(disk.indexes);
 		return new MemoryFiles(d);
 	}
 
@@ -105,12 +91,6 @@ class MemoryFiles implements CloudFiles
 	}
 
 	@Override
-	public String syncLogLocation()
-	{
-		return "memory";
-	}
-
-	@Override
 	public SyncState readSyncState(String key)
 	{
 		String json = disk.states.get(key);
@@ -136,19 +116,6 @@ class MemoryFiles implements CloudFiles
 	public void writeOutbox(String key, Map<String, String> docs)
 	{
 		disk.outboxes.put(key, gson.toJson(docs));
-	}
-
-	@Override
-	public MediaIndex readMediaIndex(String key)
-	{
-		String json = disk.indexes.get(key);
-		return json == null ? new MediaIndex() : gson.fromJson(json, MediaIndex.class);
-	}
-
-	@Override
-	public void writeMediaIndex(String key, MediaIndex index)
-	{
-		disk.indexes.put(key, gson.toJson(index));
 	}
 
 	@Override
@@ -197,56 +164,5 @@ class MemoryFiles implements CloudFiles
 	public boolean changedOnDisk(String key)
 	{
 		return false;
-	}
-
-	@Override
-	public List<JourneyStore.ScreenshotFile> listScreenshots(String key)
-	{
-		List<JourneyStore.ScreenshotFile> out = new ArrayList<>();
-		screenshots.keySet().forEach(name -> out.add(new JourneyStore.ScreenshotFile(name, 1_000_000, 1_000, false)));
-		cloudCopies.forEach((name, bytes) ->
-		{
-			if (!screenshots.containsKey(name))
-			{
-				out.add(new JourneyStore.ScreenshotFile(name, bytes.length, 1_000, true));
-			}
-		});
-		return out;
-	}
-
-	@Override
-	public BufferedImage readScreenshot(String key, String name)
-	{
-		return screenshots.get(name);
-	}
-
-	@Override
-	public void writeCloudCopy(String key, String name, byte[] jpeg)
-	{
-		cloudCopies.put(name, jpeg);
-	}
-
-	@Override
-	public void deleteCloudCopy(String key, String name)
-	{
-		cloudCopies.remove(name);
-	}
-
-	@Override
-	public byte[] readThumb(String key, String mediaId)
-	{
-		return thumbs.get(mediaId);
-	}
-
-	@Override
-	public void writeThumb(String key, String mediaId, byte[] jpeg)
-	{
-		thumbs.put(mediaId, jpeg);
-	}
-
-	@Override
-	public void deleteThumb(String key, String mediaId)
-	{
-		thumbs.remove(mediaId);
 	}
 }

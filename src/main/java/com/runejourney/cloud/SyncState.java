@@ -94,10 +94,9 @@ public class SyncState
 		private int seq;
 		private List<String> uploadIds = new ArrayList<>();
 		/**
-		 * Document key (or media ID for screenshots) to what was uploaded.
+		 * Document key to what was uploaded.
 		 */
 		private Map<String, String> docs = new HashMap<>();
-		private List<String> media = new ArrayList<>();
 		private long sentAt;
 	}
 }

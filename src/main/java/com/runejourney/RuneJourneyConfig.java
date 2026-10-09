@@ -73,7 +73,7 @@ public interface RuneJourneyConfig extends Config
 	@ConfigItem(
 		keyName = "cloudSync",
 		name = "Cloud sync",
-		description = "Save your journey, goals and screenshots (encrypted) to your RuneJourney account, so you can use them on any PC. Connect from the RuneJourney side panel.",
+		description = "Save your journey and goals (encrypted) to your RuneJourney account, so you can use them on any PC. Connect from the RuneJourney side panel.",
 		warning = "This feature submits your IP address to a 3rd-party server not controlled or verified by RuneLite developers",
 		section = cloudSection,
 		position = 0
@@ -81,20 +81,6 @@ public interface RuneJourneyConfig extends Config
 	default boolean cloudSync()
 	{
 		return false;
-	}
-
-	// Hidden while screenshot backup is off (SyncManager.SCREENSHOTS)
-	@ConfigItem(
-		keyName = "cloudScreenshots",
-		name = "Back up screenshots",
-		description = "Upload smaller copies of the screenshots RuneJourney takes. 100 MB of cloud space for screenshots is free; when it's full, new ones are still saved on this PC.",
-		section = cloudSection,
-		position = 1,
-		hidden = true
-	)
-	default boolean cloudScreenshots()
-	{
-		return true;
 	}
 
 	@ConfigItem(

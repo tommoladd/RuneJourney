@@ -88,8 +88,8 @@ Cloud sync is off unless you turn it on. When it's on:
 - The plugin only ever connects to the RuneJourney website (and, for public pages, the official
   hiscores through RuneLite). Every file goes to and from the website, which stores it.
 - Your key is kept in `plugin-data/runejourney/cloud/`, not in RuneLite's settings.
-- What sync does is logged in `plugin-data/runejourney/cloud/sync.log` (open it from the side panel):
-  each request and how it went, never your key or a download address.
+- What sync does is logged in `plugin-data/runejourney/cloud/sync.log`: each request and how it went,
+  never your key or a download address.
 - Delete one account's cloud data, or everything, on the website, signed in with Discord.
 
 Net worth and screenshots can be turned off in the plugin settings.

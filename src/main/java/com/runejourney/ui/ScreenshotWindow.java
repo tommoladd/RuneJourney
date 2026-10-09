@@ -1,8 +1,6 @@
 package com.runejourney.ui;
 
 import com.runejourney.RuneJourneyPlugin;
-import com.runejourney.cloud.MediaIndex;
-import com.runejourney.cloud.SyncManager;
 import com.runejourney.model.JourneyEvent;
 import com.runejourney.service.JourneyService;
 import com.runejourney.service.JourneyStore;
@@ -121,20 +119,11 @@ class ScreenshotWindow extends JFrame
 		long time;
 		String title;
 		JourneyEvent event;
-		/**
-		 * Taken on another PC: only in the cloud, not yet opened here.
-		 */
-		boolean cloudOnly;
-		/**
-		 * Whether it's in the cloud, for the badge; null when cloud sync isn't on.
-		 */
-		MediaIndex.Entry cloud;
 	}
 
 	private final JourneyService service;
 	private final JourneyStore store;
 	private final RuneJourneyPlugin plugin;
-	private final SyncManager sync;
 
 	private final JLabel summary = new JLabel();
 	private final JComboBox<Sort> sortBox = new JComboBox<>(Sort.values());
@@ -147,12 +136,11 @@ class ScreenshotWindow extends JFrame
 	private List<Shot> visible = Collections.emptyList();
 
 	@Inject
-	ScreenshotWindow(JourneyService service, JourneyStore store, RuneJourneyPlugin plugin, SyncManager sync)
+	ScreenshotWindow(JourneyService service, JourneyStore store, RuneJourneyPlugin plugin)
 	{
 		this.service = service;
 		this.store = store;
 		this.plugin = plugin;
-		this.sync = sync;
 
 		setTitle("RuneJourney Screenshots" + (service.playerName() != null ? " · " + service.playerName() : ""));
 		setIconImage(Icons.navIcon());
@@ -224,32 +212,15 @@ class ScreenshotWindow extends JFrame
 			return;
 		}
 		Map<String, JourneyEvent> events = service.screenshotEvents();
-		boolean synced = sync.status().isLinked();
-		Map<String, MediaIndex.Entry> cloud = sync.media();
 		background(() ->
 		{
 			List<JourneyStore.ScreenshotFile> files = store.listScreenshots(key);
 			List<Shot> loaded = new ArrayList<>();
-			Set<String> here = new java.util.HashSet<>();
 			for (JourneyStore.ScreenshotFile f : files)
 			{
-				here.add(f.getName());
 				JourneyEvent e = events.get(f.getName());
 				long time = e != null ? e.getTime() : timeFromName(f.getName(), f.getModified());
-				MediaIndex.Entry entry = cloud.get(SyncManager.mediaId(f.getName()));
-				loaded.add(new Shot(f.getName(), f.getSize(), time, e != null ? e.getTitle() : titleFromName(f.getName()), e, false,
-					synced ? (entry != null ? entry : new MediaIndex.Entry()) : null));
-			}
-			// Taken on other PCs
-			for (MediaIndex.Entry entry : cloud.values())
-			{
-				if (entry.isInCloud() && entry.getName() != null && JourneyStore.isScreenshotName(entry.getName()) && !here.contains(entry.getName()))
-				{
-					JourneyEvent e = events.get(entry.getName());
-					long time = e != null ? e.getTime() : entry.getTime() > 0 ? entry.getTime() : timeFromName(entry.getName(), 0);
-					String title = e != null ? e.getTitle() : entry.getTitle() != null ? entry.getTitle() : titleFromName(entry.getName());
-					loaded.add(new Shot(entry.getName(), entry.getCloudBytes(), time, title, e, true, entry));
-				}
+				loaded.add(new Shot(f.getName(), f.getSize(), time, e != null ? e.getTitle() : titleFromName(f.getName()), e));
 			}
 			SwingUtilities.invokeLater(() ->
 			{
@@ -327,7 +298,7 @@ class ScreenshotWindow extends JFrame
 		}
 		else
 		{
-			loadThumbnail(s, icon ->
+			loadThumbnail(s.getName(), icon ->
 			{
 				image.setText(icon == null ? "Can't open" : null);
 				image.setIcon(icon);
@@ -345,12 +316,6 @@ class ScreenshotWindow extends JFrame
 		meta.setFont(FontManager.getRunescapeSmallFont());
 		meta.setForeground(Ui.MUTED);
 		text.add(meta);
-		JLabel badge = badge(s);
-		if (badge != null)
-		{
-			text.add(badge);
-			badge.setInheritsPopupMenu(true);
-		}
 		JCheckBox pick = new JCheckBox(s.getEvent() == null ? "Select (not in Journey)" : "Select", selected.contains(s.getName()));
 		pick.setOpaque(false);
 		pick.setFont(FontManager.getRunescapeSmallFont());
@@ -376,12 +341,6 @@ class ScreenshotWindow extends JFrame
 		JMenuItem save = new JMenuItem("Save a copy...");
 		save.addActionListener(e -> saveCopy(s));
 		menu.add(save);
-		if (s.getCloud() != null && s.getCloud().isInCloud())
-		{
-			JMenuItem remove = new JMenuItem(s.isCloudOnly() ? "Remove from cloud" : "Remove from cloud (keep on this PC)");
-			remove.addActionListener(e -> removeFromCloud(s));
-			menu.add(remove);
-		}
 		menu.addSeparator();
 		JMenuItem delete = new JMenuItem("Delete");
 		delete.addActionListener(e -> delete(Collections.singletonList(s.getName()), card));
@@ -412,22 +371,12 @@ class ScreenshotWindow extends JFrame
 		deleteSelected.setEnabled(!selected.isEmpty());
 	}
 
-	private void loadThumbnail(Shot s, Consumer<ImageIcon> done)
+	private void loadThumbnail(String name, Consumer<ImageIcon> done)
 	{
 		String key = service.getProfileKey();
-		String name = s.getName();
 		background(() ->
 		{
-			BufferedImage full;
-			if (s.isCloudOnly())
-			{
-				byte[] thumb = store.readThumb(key, SyncManager.mediaId(name));
-				full = thumb == null ? null : ImageIO.read(new java.io.ByteArrayInputStream(thumb));
-			}
-			else
-			{
-				full = store.readScreenshot(key, name);
-			}
+			BufferedImage full = store.readScreenshot(key, name);
 			ImageIcon icon = full == null ? null : new ImageIcon(scale(full, THUMB_WIDTH, THUMB_HEIGHT));
 			SwingUtilities.invokeLater(() ->
 			{
@@ -438,86 +387,6 @@ class ScreenshotWindow extends JFrame
 				done.accept(icon);
 			});
 		}, null);
-	}
-
-	/**
-	 * Where the screenshot is kept, when cloud sync is on for the account.
-	 */
-	private static JLabel badge(Shot s)
-	{
-		MediaIndex.Entry cloud = s.getCloud();
-		if (cloud == null)
-		{
-			return null;
-		}
-		String text;
-		Color color = Ui.MUTED;
-		if (s.isCloudOnly())
-		{
-			text = "In the cloud, from another PC";
-			color = Ui.GOLD;
-		}
-		else if (cloud.getState() == MediaIndex.State.WAITING)
-		{
-			text = "Waiting: cloud full";
-			color = Ui.WARN;
-		}
-		else if (cloud.getState() == MediaIndex.State.QUEUED)
-		{
-			text = "Waiting to back up";
-		}
-		else if (cloud.isInCloud())
-		{
-			text = "In the cloud";
-			color = Ui.GOOD;
-		}
-		else
-		{
-			text = "Only on this PC";
-		}
-		JLabel badge = new JLabel(text);
-		badge.setFont(FontManager.getRunescapeSmallFont());
-		badge.setForeground(color);
-		return badge;
-	}
-
-	/**
-	 * Opens a screenshot: from this PC, or fetched from the cloud if it was taken on another.
-	 */
-	private void open(Shot s, Consumer<BufferedImage> done)
-	{
-		String key = service.getProfileKey();
-		background(() ->
-		{
-			BufferedImage image = store.readScreenshot(key, s.getName());
-			if (image == null && s.getCloud() != null && s.getCloud().isInCloud())
-			{
-				sync.openFromCloud(key, s.getName()).whenComplete((cloud, e) -> SwingUtilities.invokeLater(() -> done.accept(cloud)));
-				return;
-			}
-			SwingUtilities.invokeLater(() -> done.accept(image));
-		}, null);
-	}
-
-	private void removeFromCloud(Shot s)
-	{
-		String message = s.isCloudOnly()
-			? "Remove this screenshot from the cloud? It was taken on another PC, which keeps its own copy."
-			: "Remove this screenshot from the cloud? It stays on this PC, and won't be backed up again.";
-		if (JOptionPane.showConfirmDialog(this, message, "RuneJourney", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE)
-			!= JOptionPane.OK_OPTION)
-		{
-			return;
-		}
-		sync.removeFromCloud(service.getProfileKey(), s.getName()).whenComplete((v, e) -> SwingUtilities.invokeLater(() ->
-		{
-			if (e != null)
-			{
-				JOptionPane.showMessageDialog(this, "Couldn't remove it from the cloud. Try again in a moment.", "RuneJourney",
-					JOptionPane.WARNING_MESSAGE);
-			}
-			reload();
-		}));
 	}
 
 	// ------------------------------------------------------------------
@@ -536,16 +405,7 @@ class ScreenshotWindow extends JFrame
 			return;
 		}
 		String what = names.size() == 1 ? "this screenshot" : names.size() + " screenshots";
-		Set<String> inCloud = new java.util.HashSet<>();
-		for (Shot s : shots)
-		{
-			if (names.contains(s.getName()) && s.getCloud() != null && s.getCloud().isInCloud())
-			{
-				inCloud.add(s.getName());
-			}
-		}
 		int ok = JOptionPane.showConfirmDialog(parent, "Delete " + what + "? This can't be undone.\n"
-				+ (inCloud.isEmpty() ? "" : "It's removed from the cloud too, so your other PCs lose it as well.\n")
 				+ "Their Journey entries stay, without the screenshot.",
 			"RuneJourney", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
 		if (ok != JOptionPane.OK_OPTION)
@@ -558,14 +418,10 @@ class ScreenshotWindow extends JFrame
 			List<String> deleted = new ArrayList<>();
 			for (String name : names)
 			{
-				if (store.deleteScreenshot(key, name) || inCloud.contains(name))
+				if (store.deleteScreenshot(key, name))
 				{
 					deleted.add(name);
 				}
-			}
-			for (String name : inCloud)
-			{
-				sync.removeFromCloud(key, name);
 			}
 			SwingUtilities.invokeLater(() ->
 			{
@@ -595,24 +451,21 @@ class ScreenshotWindow extends JFrame
 			return;
 		}
 		Filepath target = chosen.get(0);
-		open(s, image ->
+		String key = service.getProfileKey();
+		background(() ->
 		{
+			BufferedImage image = store.readScreenshot(key, s.getName());
 			if (image == null)
 			{
-				JOptionPane.showMessageDialog(this, "Couldn't save the copy: the screenshot is missing.", "RuneJourney",
-					JOptionPane.WARNING_MESSAGE);
-				return;
+				throw new IOException("the screenshot is missing");
 			}
-			background(() ->
+			try (OutputStream out = target.openOutputStream())
 			{
-				try (OutputStream out = target.openOutputStream())
-				{
-					ImageIO.write(image, "png", out);
-				}
-				SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Saved " + target.getFileName() + ".",
-					"RuneJourney", JOptionPane.INFORMATION_MESSAGE));
-			}, "Couldn't save the copy");
-		});
+				ImageIO.write(image, "png", out);
+			}
+			SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Saved " + target.getFileName() + ".",
+				"RuneJourney", JOptionPane.INFORMATION_MESSAGE));
+		}, "Couldn't save the copy");
 	}
 
 	private interface IoTask
@@ -724,17 +577,22 @@ class ScreenshotWindow extends JFrame
 			String note = s.getEvent() != null && s.getEvent().getNote() != null ? " · " + s.getEvent().getNote() : "";
 			caption.setText(Ui.wrap(s.getTitle() + " · " + shownTime(s.getTime()) + note + "   (" + (i + 1) + " of " + visible.size() + ")", 560));
 			image.setIcon(null);
-			image.setText(s.isCloudOnly() ? "Fetching from the cloud..." : "Loading...");
-			open(s, full ->
+			image.setText("Loading...");
+			String key = service.getProfileKey();
+			background(() ->
 			{
-				if (index != i)
-				{
-					return;
-				}
+				BufferedImage full = store.readScreenshot(key, s.getName());
 				Image fitted = full == null ? null : scale(full, 1000, 600);
-				image.setText(fitted == null ? "This screenshot can't be opened." : null);
-				image.setIcon(fitted == null ? null : new ImageIcon(fitted));
-			});
+				SwingUtilities.invokeLater(() ->
+				{
+					if (index != i)
+					{
+						return;
+					}
+					image.setText(fitted == null ? "This screenshot can't be opened." : null);
+					image.setIcon(fitted == null ? null : new ImageIcon(fitted));
+				});
+			}, null);
 		}
 	}
 

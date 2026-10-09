@@ -203,7 +203,6 @@ public class RuneJourneyPlugin extends Plugin
 		});
 		store.setRoot(getPluginDirectory());
 		screenshots.setExecutor(executor);
-		screenshots.setListener(sync::onScreenshot);
 		wrappedPlayer.setExecutor(executor, service::getProfileKey);
 		sync.setSaver(this::save);
 		sync.start(executor);
@@ -241,7 +240,6 @@ public class RuneJourneyPlugin extends Plugin
 		heldXp = null;
 		sync.stop();
 		sync.setSaver(null);
-		screenshots.setListener(null);
 		// Finish the play session first so its records are included in the final save
 		service.resetSessionState();
 		save();

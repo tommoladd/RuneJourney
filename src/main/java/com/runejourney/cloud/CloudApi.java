@@ -15,7 +15,7 @@ import java.util.concurrent.CompletableFuture;
 public interface CloudApi
 {
 	/**
-	 * Checks a key: whose it is, the key their data is encrypted with, and their screenshot storage.
+	 * Checks a key: whose it is, and the key their data is encrypted with.
 	 */
 	CompletableFuture<Api.Me> me(Api.Session session);
 
@@ -48,16 +48,6 @@ public interface CloudApi
 	 * Fetches one of the account's files, by its ID in {@link #changes}, from the server.
 	 */
 	CompletableFuture<byte[]> downloadFile(Api.Session session, String profileId, long fileId, int maxBytes);
-
-	/**
-	 * The IDs of one screenshot's files.
-	 */
-	CompletableFuture<Api.MediaFiles> media(Api.Session session, String profileId, String mediaId);
-
-	/**
-	 * "Remove from cloud". The copy on the PC is kept.
-	 */
-	CompletableFuture<Void> deleteMedia(Api.Session session, String profileId, String mediaId);
 
 	/**
 	 * Changes an account's public page settings. Null leaves a setting as it is.

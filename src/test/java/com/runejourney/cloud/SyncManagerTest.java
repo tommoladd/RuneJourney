@@ -15,7 +15,6 @@ import com.runejourney.service.PublicCollectionLog;
 import com.runejourney.service.PublicSnapshot;
 import com.runejourney.service.TestServices;
 import com.runejourney.sync.Envelope;
-import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -42,7 +41,6 @@ import org.junit.Test;
 public class SyncManagerTest
 {
 	private static final String ACCOUNT = "1234567890";
-	private static final String SHOT = "2026-10-08_12-00-00_level-99-agility_1.png";
 
 	private final Gson gson = new Gson();
 	private final FakeCloudServer server = new FakeCloudServer();
@@ -79,17 +77,6 @@ public class SyncManagerTest
 		}
 	};
 
-	/**
-	 * Screenshot backup is off for now; tests of it switch it on, here and on the server.
-	 */
-	private boolean screenshots;
-
-	private void withScreenshots()
-	{
-		screenshots = true;
-		server.screenshots = true;
-	}
-
 	private class Pc
 	{
 		final MemoryFiles files;
@@ -118,10 +105,6 @@ public class SyncManagerTest
 			service = TestServices.journey(config, gson);
 			service.install(ACCOUNT, new JourneyStore.Loaded(profile, days));
 			sync = new SyncManager(service, server, files, config, gson, true, hiscores);
-			if (screenshots)
-			{
-				sync.enableScreenshots();
-			}
 			// Saving clears what's waiting to be saved, as it would on disk
 			sync.setSaver(service::collectWrites);
 			sync.start(Runnable::run);
@@ -330,66 +313,9 @@ public class SyncManagerTest
 	}
 
 	@Test
-	public void screenshotsGoToTheCloudAndShowOnOtherPcs()
-	{
-		withScreenshots();
-		Pc[] pcs = twoPcs();
-		Pc a = pcs[0];
-		Pc b = pcs[1];
-		a.files.screenshots.put(SHOT, image());
-		a.sync.onScreenshot(ACCOUNT, SHOT, "Level 99 Agility");
-		a.sync();
-		assertEquals(1, server.count("media"));
-		assertEquals(1, server.count("thumb"));
-		assertEquals(MediaIndex.State.UPLOADED, a.sync.media().get(SyncManager.mediaId(SHOT)).getState());
-
-		b.sync();
-		MediaIndex.Entry seen = b.sync.media().get(SyncManager.mediaId(SHOT));
-		assertNotNull(seen);
-		assertEquals(SHOT, seen.getName());
-		assertEquals("Level 99 Agility", seen.getTitle());
-		assertTrue(b.files.thumbs.containsKey(SyncManager.mediaId(SHOT)));
-
-		BufferedImage opened = b.sync.openFromCloud(ACCOUNT, SHOT).join();
-		assertEquals(64, opened.getWidth());
-		assertTrue(b.files.cloudCopies.containsKey(SHOT));
-
-		// Removed from the cloud on A: A keeps its original, B drops its copies
-		a.sync.removeFromCloud(ACCOUNT, SHOT).join();
-		assertEquals(0, server.count("media"));
-		assertTrue(a.files.screenshots.containsKey(SHOT));
-		b.sync();
-		assertFalse(b.files.thumbs.containsKey(SyncManager.mediaId(SHOT)));
-		assertFalse(b.files.cloudCopies.containsKey(SHOT));
-	}
-
-	@Test
-	public void fullScreenshotStorageOnlyPausesScreenshots()
-	{
-		withScreenshots();
-		Pc a = twoPcs()[0];
-		server.quota = 10;
-		a.files.screenshots.put(SHOT, image());
-		a.sync.onScreenshot(ACCOUNT, SHOT, "Pet");
-		a.train(1_055_000);
-		a.sync();
-		assertTrue(a.status().isMediaFull());
-		assertEquals(MediaIndex.State.WAITING, a.sync.media().get(SyncManager.mediaId(SHOT)).getState());
-		assertEquals(0, server.count("media"));
-		assertEquals(0, a.status().getWaiting());
-
-		server.quota = 100L * 1024 * 1024;
-		a.sync();
-		assertFalse(a.status().isMediaFull());
-		assertEquals(1, server.count("media"));
-	}
-
-	@Test
 	public void nothingReadableIsUploaded()
 	{
 		Pc[] pcs = twoPcs();
-		pcs[0].files.screenshots.put(SHOT, image());
-		pcs[0].sync.onScreenshot(ACCOUNT, SHOT, "Level 99 Agility");
 		pcs[0].sync();
 		for (byte[] file : server.storedBytes())
 		{
@@ -518,44 +444,6 @@ public class SyncManagerTest
 	}
 
 	/**
-	 * Saved again after the cloud data was deleted: screenshots go up again from the PC that has
-	 * them, and other PCs forget the ones the cloud no longer has.
-	 */
-	@Test
-	public void screenshotsGoUpAgainAfterTheCloudLostThem()
-	{
-		withScreenshots();
-		Pc[] pcs = twoPcs();
-		Pc a = pcs[0];
-		Pc b = pcs[1];
-		String id = SyncManager.mediaId(SHOT);
-		a.files.screenshots.put(SHOT, image());
-		a.sync.onScreenshot(ACCOUNT, SHOT, "Level 99 Agility");
-		a.sync();
-		b.sync();
-		assertTrue(b.files.thumbs.containsKey(id));
-
-		server.profiles.clear();
-		b.sync();
-		b.sync.consent(true);
-		assertNull("B only had A's thumbnail", b.sync.media().get(id));
-		assertFalse(b.files.thumbs.containsKey(id));
-
-		a.sync();
-		a.sync.consent(true);
-		if (a.status().getPrompt() == CloudStatus.Prompt.CHOOSE)
-		{
-			a.sync.choose(false);
-		}
-		a.sync();
-		assertEquals(1, server.count("media"));
-		assertTrue(a.sync.media().get(id).isInCloud());
-
-		b.sync();
-		assertNotNull(b.sync.media().get(id));
-	}
-
-	/**
 	 * Only a developer can point the plugin at another server; everyone else always talks to
 	 * runejourney.org, whatever is saved in their settings.
 	 */
@@ -611,26 +499,6 @@ public class SyncManagerTest
 		a.sync.onLogout(ACCOUNT);
 		assertEquals(2, server.publishAttempts);
 		assertEquals(1_060_000L, (long) server.page().getSkills().get("AGILITY"));
-	}
-
-	/**
-	 * While screenshot backup is off, nothing but the journey goes to the cloud.
-	 */
-	@Test
-	public void screenshotsStayOnThisPcWhileBackupIsOff()
-	{
-		Pc a = new Pc().connected();
-		a.login(1_000_000);
-		a.sync.consent(true);
-		a.files.screenshots.put(SHOT, image());
-		a.sync.onScreenshot(ACCOUNT, SHOT, "Level 99 Agility");
-		a.sync();
-
-		assertEquals(0, server.count("media"));
-		assertEquals(0, server.count("thumb"));
-		assertTrue(server.count("journey") > 0);
-		assertFalse(a.status().isScreenshots());
-		assertTrue("Nothing shown as in the cloud", a.sync.media().isEmpty());
 	}
 
 	/**
@@ -712,42 +580,6 @@ public class SyncManagerTest
 		timeline = server.page().getTimeline();
 		assertTrue(timeline.stream().anyMatch(e -> "First fire cape".equals(e.getTitle()) && Boolean.TRUE.equals(e.getMemory())));
 		assertTrue(timeline.stream().anyMatch(e -> "Forgot to pray".equals(e.getNote())));
-	}
-
-	/**
-	 * A moment's screenshot shows on the page only once the player chooses to show screenshots, and
-	 * only if it's in the cloud.
-	 */
-	@Test
-	public void screenshotsOnlyShowWhenChosenAndInTheCloud()
-	{
-		withScreenshots();
-		String unsaved = "2026-10-08_13-00-00_new-pet_1.png";
-		TreeMap<String, DayRecord> days = new TreeMap<>();
-		DayRecord today = new DayRecord(LocalDate.now().toString());
-		JourneyEvent level = new JourneyEvent(System.currentTimeMillis() - 2_001, EventType.LEVEL, "Level 99 Agility", null, "AGILITY", SHOT, true, 99);
-		level.setId("level|AGILITY|99");
-		JourneyEvent pet = new JourneyEvent(System.currentTimeMillis() - 1_001, EventType.PET, "New pet!", null, null, unsaved, true, 0);
-		pet.setId("pet-1");
-		today.getEvents().add(level);
-		today.getEvents().add(pet);
-		days.put(today.getDate(), today);
-
-		Pc a = new Pc(new MemoryFiles(), null, days).connected();
-		a.service.updatePlayerName("Zezima");
-		a.login(1_000_000);
-		a.sync.consent(true);
-		a.files.screenshots.put(SHOT, image());
-		a.sync.onScreenshot(ACCOUNT, SHOT, "Level 99 Agility");
-		server.pub().setEnabled(true);
-		a.sync();
-		assertTrue(server.page().getTimeline().stream().allMatch(e -> e.getScreenshot() == null));
-
-		server.pub().getSections().add("screenshots");
-		a.sync();
-		List<PublicSnapshot.Event> timeline = server.page().getTimeline();
-		assertEquals(SyncManager.mediaId(SHOT), timeline.stream().filter(e -> e.getTitle().equals("Level 99 Agility")).findFirst().get().getScreenshot());
-		assertNull("Not backed up, so not shown", timeline.stream().filter(e -> e.getTitle().equals("New pet!")).findFirst().get().getScreenshot());
 	}
 
 	@Test
@@ -1035,17 +867,5 @@ public class SyncManagerTest
 	{
 		return CharacterModel.of(3, new float[]{0, 64, 0}, new float[]{0, 0, -200}, new float[]{0, 0, 0},
 			1, new int[]{0}, new int[]{1}, new int[]{2}, new int[]{960}, new int[]{960}, new int[]{-1}, null, null);
-	}
-	private static BufferedImage image()
-	{
-		BufferedImage img = new BufferedImage(64, 48, BufferedImage.TYPE_INT_ARGB);
-		for (int x = 0; x < 64; x++)
-		{
-			for (int y = 0; y < 48; y++)
-			{
-				img.setRGB(x, y, 0xFF000000 | (x * 4 << 16) | (y * 5 << 8));
-			}
-		}
-		return img;
 	}
 }

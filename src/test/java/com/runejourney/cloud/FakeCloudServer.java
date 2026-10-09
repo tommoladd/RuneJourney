@@ -19,8 +19,8 @@ import java.util.stream.Collectors;
 
 /**
  * An in-memory RuneJourney cloud that behaves like the real API: signed URLs, two-step uploads,
- * commits checked by sequence number and replayed by change ID, a screenshot quota. It can also
- * misbehave: lose a commit's reply, or revoke the key.
+ * commits checked by sequence number and replayed by change ID. It can also misbehave: lose a
+ * commit's reply, or revoke the key.
  */
 class FakeCloudServer implements CloudApi
 {
@@ -32,8 +32,6 @@ class FakeCloudServer implements CloudApi
 	static final String KEY_NAME = "Desktop";
 
 	final String dataKey;
-	long quota = 100L * 1024 * 1024;
-	long used;
 	boolean revoked;
 	/**
 	 * The next commits are applied, but their replies are lost.
@@ -67,10 +65,6 @@ class FakeCloudServer implements CloudApi
 	private final Map<String, Api.Committed> commits = new HashMap<>();
 	private int nextId;
 	private long nextObjectId;
-	/**
-	 * Screenshots can be uploaded; off, as on the website.
-	 */
-	boolean screenshots;
 
 	static class Profile
 	{
@@ -129,10 +123,7 @@ class FakeCloudServer implements CloudApi
 
 	private static <T> CompletableFuture<T> fail(int status, String code)
 	{
-		Api.Error e = new Api.Error();
-		e.setError(code);
-		e.setMessage(code);
-		return fail(new CloudException(status, code, code, e));
+		return fail(new CloudException(status, code, code));
 	}
 
 	private static <T> CompletableFuture<T> fail(Exception e)
@@ -163,16 +154,7 @@ class FakeCloudServer implements CloudApi
 		key.setId(1);
 		key.setKey(dataKey);
 		me.setDataKey(key);
-		me.setMedia(usage());
 		return CompletableFuture.completedFuture(me);
-	}
-
-	private Api.Media usage()
-	{
-		Api.Media m = new Api.Media();
-		m.setQuotaBytes(quota);
-		m.setUsedBytes(used);
-		return m;
 	}
 
 	@Override
@@ -442,18 +424,6 @@ class FakeCloudServer implements CloudApi
 		{
 			return fail(404, "profile_not_found");
 		}
-		long media = files.stream().filter(f -> !"journey".equals(f.getKind())).mapToLong(Api.FileSpec::getSize).sum();
-		if (media > 0 && !screenshots)
-		{
-			return fail(409, "screenshots_disabled");
-		}
-		if (media > 0 && used + media > quota)
-		{
-			Api.Error e = new Api.Error();
-			e.setError("media_quota_exceeded");
-			e.setMedia(usage());
-			return fail(new CloudException(409, "media_quota_exceeded", "full", e));
-		}
 		Api.Uploads out = new Api.Uploads();
 		for (Api.FileSpec f : files)
 		{
@@ -538,17 +508,12 @@ class FakeCloudServer implements CloudApi
 		}
 		for (Upload u : pending)
 		{
-			String key = u.kind + "|" + u.docKey + ("journey".equals(u.kind) ? "|" + u.device : "");
-			Stored o = p.objects.computeIfAbsent(key, k ->
+			Stored o = p.objects.computeIfAbsent(u.kind + "|" + u.docKey + "|" + u.device, k ->
 			{
 				Stored created = new Stored();
 				created.id = ++nextObjectId;
 				return created;
 			});
-			if (!"journey".equals(u.kind) && o.bytes != null && !o.deleted)
-			{
-				used -= o.bytes.length;
-			}
 			o.kind = u.kind;
 			o.docKey = u.docKey;
 			o.device = u.device;
@@ -557,10 +522,6 @@ class FakeCloudServer implements CloudApi
 			o.schema = u.schema;
 			o.deleted = false;
 			o.cursor = ++p.cursor;
-			if (!"journey".equals(u.kind))
-			{
-				used += u.bytes.length;
-			}
 			uploads.remove(u.id);
 		}
 		p.seq.put(s.getDeviceId(), seq + 1);
@@ -586,38 +547,6 @@ class FakeCloudServer implements CloudApi
 			return fail(404, "file_not_found");
 		}
 		return CompletableFuture.completedFuture(o.bytes.clone());
-	}
-
-	@Override
-	public CompletableFuture<Api.MediaFiles> media(Api.Session s, String profileId, String mediaId)
-	{
-		Profile p = byId(profileId);
-		Stored media = p.objects.get("media|media:" + mediaId);
-		Stored thumb = p.objects.get("thumb|media:" + mediaId);
-		if (media == null || media.deleted)
-		{
-			return fail(404, "media_not_found");
-		}
-		Api.MediaFiles found = new Api.MediaFiles();
-		found.setMedia(media.id);
-		found.setThumb(thumb == null || thumb.deleted ? null : thumb.id);
-		return CompletableFuture.completedFuture(found);
-	}
-	@Override
-	public CompletableFuture<Void> deleteMedia(Api.Session s, String profileId, String mediaId)
-	{
-		Profile p = byId(profileId);
-		for (String kind : new String[]{"media", "thumb"})
-		{
-			Stored o = p.objects.get(kind + "|media:" + mediaId);
-			if (o != null && !o.deleted)
-			{
-				used -= o.bytes.length;
-				o.deleted = true;
-				o.cursor = ++p.cursor;
-			}
-		}
-		return CompletableFuture.completedFuture(null);
 	}
 
 	@Override

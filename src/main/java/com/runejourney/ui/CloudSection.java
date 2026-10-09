@@ -4,9 +4,7 @@ import com.runejourney.RuneJourneyConfig;
 import com.runejourney.cloud.CloudStatus;
 import com.runejourney.cloud.SyncManager;
 import java.awt.BorderLayout;
-import java.awt.Color;
 import java.awt.GridLayout;
-import java.util.Locale;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.swing.JCheckBox;
@@ -23,7 +21,7 @@ import net.runelite.client.util.LinkBrowser;
 
 /**
  * Cloud sync in the side panel: a status line under the title that opens the cloud card (connect,
- * status, screenshots, disconnect), and questions for the player shown above the tabs.
+ * status, disconnect), and questions for the player shown above the tabs.
  */
 class CloudSection
 {
@@ -203,27 +201,8 @@ class CloudSection
 				prompts.add(card);
 				break;
 			}
-			case BACKLOG:
-			{
-				JPanel card = Ui.accentCard(Ui.GOLD);
-				card.add(Ui.title("Back up your screenshots?"));
-				card.add(Ui.text("You have " + s.getBacklogCount() + (s.getBacklogCount() == 1 ? " screenshot" : " screenshots")
-					+ " from before you connected, about " + megabytes(s.getBacklogBytes()) + " in the cloud. Newest go first."));
-				card.add(buttons(Ui.button("Back up", () -> sync.backlog(true)), Ui.button("Not now", () -> sync.backlog(false))));
-				prompts.add(card);
-				break;
-			}
 			default:
 				break;
-		}
-		if (s.isMediaFull() && s.isScreenshots())
-		{
-			JPanel card = Ui.accentCard(Ui.WARN);
-			card.add(Ui.title("Cloud screenshots full"));
-			card.add(Ui.text(megabytes(s.getMediaUsed()) + " used. New screenshots are still saved on this PC, "
-				+ "and back up once there's room."));
-			card.add(buttons(Ui.button("Manage", this::openWebsite)));
-			prompts.add(card);
 		}
 	}
 
@@ -326,18 +305,6 @@ class CloudSection
 			}
 		}
 
-		if (s.isScreenshots() && s.getMediaQuota() > 0)
-		{
-			card.add(Ui.stat("Screenshots", megabytes(s.getMediaUsed()) + " of " + megabytes(s.getMediaQuota()),
-				s.isMediaFull() ? Ui.WARN : Color.WHITE));
-			card.add(Ui.progress(s.getMediaUsed() / (double) s.getMediaQuota(), s.isMediaFull() ? Ui.WARN : Ui.GOLD));
-			if (s.getMediaWaiting() > 0)
-			{
-				card.add(Ui.muted(s.getMediaWaiting() + (s.getMediaWaiting() == 1 ? " screenshot" : " screenshots")
-					+ (s.isMediaFull() ? " waiting for room." : " waiting to upload.")));
-			}
-		}
-
 		JPanel row = new JPanel(new GridLayout(1, 2, 4, 0));
 		row.setOpaque(false);
 		row.add(Ui.button("Sync now", sync::syncNow));
@@ -345,8 +312,6 @@ class CloudSection
 		card.add(row);
 		card.add(buttons(Ui.button("Disconnect this PC", this::disconnect)));
 		card.add(Ui.muted("Deleting cloud data and keys is done on the website, signed in with Discord."));
-		// What sync did, request by request, for working out a problem
-		card.add(Ui.link("Open the sync log", () -> LinkBrowser.open(sync.syncLogLocation())));
 	}
 
 	/**
@@ -477,13 +442,6 @@ class CloudSection
 			row.add(b);
 		}
 		return row;
-	}
-
-	static String megabytes(long bytes)
-	{
-		return bytes < 1024 * 1024
-			? Math.max(1, bytes / 1024) + " KB"
-			: String.format(Locale.ENGLISH, "%.1f MB", bytes / (1024d * 1024d));
 	}
 
 	static String ago(long millis)

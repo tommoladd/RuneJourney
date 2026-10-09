@@ -48,11 +48,7 @@ public class CloudStatus
 		/**
 		 * This PC and the cloud both have a journey for the account.
 		 */
-		CHOOSE,
-		/**
-		 * Back up screenshots taken before connecting?
-		 */
-		BACKLOG
+		CHOOSE
 	}
 
 	Connection connection;
@@ -106,12 +102,4 @@ public class CloudStatus
 	 * The character on the public page, or null if the page doesn't show it.
 	 */
 	Character publicCharacter;
-
-	boolean screenshots;
-	long mediaUsed;
-	long mediaQuota;
-	boolean mediaFull;
-	int mediaWaiting;
-	int backlogCount;
-	long backlogBytes;
 }

@@ -81,10 +81,6 @@ public class PublicSnapshot
 		private Boolean highlight;
 		private String note;
 		private Boolean memory;
-		/**
-		 * The media ID of the moment's screenshot, when it's in the cloud and the page shows screenshots.
-		 */
-		private String screenshot;
 	}
 
 	@Data

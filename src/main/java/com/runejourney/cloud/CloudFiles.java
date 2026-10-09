@@ -1,7 +1,5 @@
 package com.runejourney.cloud;
 
-import com.runejourney.service.JourneyStore;
-import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -25,11 +23,6 @@ public interface CloudFiles
 	void appendSyncLog(String text) throws IOException;
 
 	/**
-	 * Where the sync log is (or its folder, before there is one), to open it.
-	 */
-	String syncLogLocation();
-
-	/**
 	 * @return null if the account has never been synced on this PC
 	 */
 	SyncState readSyncState(String profileKey) throws IOException;
@@ -42,10 +35,6 @@ public interface CloudFiles
 	Map<String, String> readOutbox(String profileKey) throws IOException;
 
 	void writeOutbox(String profileKey, Map<String, String> docs) throws IOException;
-
-	MediaIndex readMediaIndex(String profileKey) throws IOException;
-
-	void writeMediaIndex(String profileKey, MediaIndex index) throws IOException;
 
 	/**
 	 * Copies the account's journey to a backup folder beside it.
@@ -90,24 +79,4 @@ public interface CloudFiles
 	 * Whether another window changed the account's files since this one loaded or saved them.
 	 */
 	boolean changedOnDisk(String profileKey) throws IOException;
-
-	List<JourneyStore.ScreenshotFile> listScreenshots(String profileKey) throws IOException;
-
-	BufferedImage readScreenshot(String profileKey, String name) throws IOException;
-
-	/**
-	 * Saves a copy of a screenshot downloaded from the cloud, under the name it was taken with.
-	 */
-	void writeCloudCopy(String profileKey, String name, byte[] jpeg) throws IOException;
-
-	void deleteCloudCopy(String profileKey, String name) throws IOException;
-
-	/**
-	 * @return null if there's no thumbnail saved
-	 */
-	byte[] readThumb(String profileKey, String mediaId) throws IOException;
-
-	void writeThumb(String profileKey, String mediaId, byte[] jpeg) throws IOException;
-
-	void deleteThumb(String profileKey, String mediaId) throws IOException;
 }
