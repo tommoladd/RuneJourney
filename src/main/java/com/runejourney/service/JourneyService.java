@@ -1508,6 +1508,25 @@ public class JourneyService implements RateSource
 			e.setValue(count);
 			addEvent(e, config.screenshotKcMilestones());
 		}
+		else
+		{
+			List<JourneyEvent> events = d.getEvents();
+			JourneyEvent last = events.isEmpty() ? null : events.get(events.size() - 1);
+			if (last != null && last.getType() == EventType.BOSS_KC && !last.isHighlight()
+				&& killsTitle(boss, last.getValue()).equals(last.getTitle()))
+			{
+				last.setValue(last.getValue() + 1);
+				last.setTitle(killsTitle(boss, last.getValue()));
+				last.setDetail(Format.number(count) + " KC");
+				changed(true);
+			}
+			else
+			{
+				JourneyEvent e = event(EventType.BOSS_KC, killsTitle(boss, 1), Format.number(count) + " KC");
+				e.setValue(1);
+				addEvent(e, false);
+			}
+		}
 
 		if (pendingPbTime != null && tick - pendingPbTick <= PB_WINDOW_TICKS)
 		{
@@ -1516,6 +1535,11 @@ public class JourneyService implements RateSource
 		}
 		checkGoals();
 		changed(false);
+	}
+
+	private static String killsTitle(String boss, long kills)
+	{
+		return kills + "x " + boss + (kills == 1 ? " kill" : " kills");
 	}
 
 	private void learnKillTime(String boss)
