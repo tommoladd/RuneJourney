@@ -343,6 +343,18 @@ public interface RuneJourneyConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "finishFromPace",
+		name = "Estimate finish from pace",
+		description = "Estimate finish dates from how fast you've progressed since starting the goal, instead of your available hours/week",
+		section = plannerSection,
+		position = 1
+	)
+	default boolean finishFromPace()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "usePersonalRates",
 		name = "Use my saved XP rates",
 		description = "For skills where you haven't chosen a training method, plan with the saved rate you trained most recently",

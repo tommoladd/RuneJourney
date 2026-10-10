@@ -243,7 +243,7 @@ public final class GoalPlanner
 	}
 
 	public static GoalProgress compute(Goal goal, Map<String, Long> state, RateSource rates, int defaultHoursPerWeek,
-		LocalDate today, long nowMillis)
+		boolean fromPace, LocalDate today, long nowMillis)
 	{
 		int hoursPerWeek = hoursPerWeek(goal, defaultHoursPerWeek);
 		GoalProgress p = new GoalProgress();
@@ -274,7 +274,7 @@ public final class GoalPlanner
 			p.setHoursRemaining(-1);
 		}
 
-		projection(p, goal, today, nowMillis, hoursPerWeek);
+		projection(p, goal, today, nowMillis, hoursPerWeek, fromPace);
 		weekRows(p, goal, state, rates);
 		return p;
 	}
@@ -337,7 +337,7 @@ public final class GoalPlanner
 		p.setHoursRemaining(hours);
 	}
 
-	private static void projection(GoalProgress p, Goal goal, LocalDate today, long nowMillis, int hoursPerWeek)
+	private static void projection(GoalProgress p, Goal goal, LocalDate today, long nowMillis, int hoursPerWeek, boolean fromPace)
 	{
 		LocalDate target = parseDate(goal.getTargetDate());
 		p.setTargetDate(target);
@@ -389,19 +389,20 @@ public final class GoalPlanner
 		}
 		double elapsedDays = (nowMillis - goal.getCreatedAt()) / (double) DAY_MILLIS;
 		boolean hoursKnown = p.getHoursRemaining() > 0;
+		boolean byHours = hoursKnown && hoursPerWeek > 0;
 
 		LocalDate projected = null;
 		if (remainingUnits <= 0)
 		{
 			projected = today;
 		}
-		else if (goal.getType() != GoalType.ITEMS && elapsedDays >= MIN_PACE_DAYS && doneUnits > 0)
+		else if ((fromPace || !byHours) && goal.getType() != GoalType.ITEMS && elapsedDays >= MIN_PACE_DAYS && doneUnits > 0)
 		{
 			double perDay = doneUnits / elapsedDays;
 			projected = today.plusDays((long) Math.ceil(remainingUnits / perDay));
 			p.setProjectionFromPace(true);
 		}
-		else if (hoursKnown && hoursPerWeek > 0)
+		else if (byHours)
 		{
 			projected = today.plusDays((long) Math.ceil(p.getHoursRemaining() / hoursPerWeek * 7));
 		}
