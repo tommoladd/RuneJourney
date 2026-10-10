@@ -597,7 +597,7 @@ class GoalsTab extends RefreshableTab
 		}
 		if (p.getProjectedCompletion() != null)
 		{
-			card.add(Ui.stat("Estimated finish", Format.date(p.getProjectedCompletion())));
+			card.add(Ui.stat(p.isProjectionFromPace() ? "Finish at your pace" : "Finish at " + p.getAvailableHoursPerWeek() + "h/week", Format.date(p.getProjectedCompletion())));
 		}
 		if (Counters.CASH.equals(g.getCounter()))
 		{
@@ -761,7 +761,7 @@ class GoalsTab extends RefreshableTab
 		card.add(Ui.stat("You planned", p.getAvailableHoursPerWeek() + "h/week"));
 		if (p.getProjectedCompletion() != null)
 		{
-			card.add(Ui.stat("Estimated finish", Format.date(p.getProjectedCompletion())));
+			card.add(Ui.stat(p.isProjectionFromPace() ? "Finish at your pace" : "Finish at " + p.getAvailableHoursPerWeek() + "h/week", Format.date(p.getProjectedCompletion())));
 		}
 		return card;
 	}
@@ -773,7 +773,8 @@ class GoalsTab extends RefreshableTab
 		String weekOf = g.getWeekStart() == null ? "" : "Week of " + Format.date(LocalDate.parse(g.getWeekStart())) + " · ";
 		card.add(Ui.muted(weekOf + Format.compact(p.getWeekAchieved()) + " / " + Format.compact(p.getWeekTarget())
 			+ " XP · ~" + Format.hours(p.getWeekHours()) + " planned"));
-		card.add(Ui.progress(p.getWeekAchieved() / (double) Math.max(1, p.getWeekTarget()), Ui.GOLD));
+		card.add(Ui.progress(p.getWeekAchieved() / (double) Math.max(1, p.getWeekTarget()),
+			p.getWeekTarget() > 0 && p.getWeekAchieved() >= p.getWeekTarget() ? Ui.GOOD : Ui.GOLD));
 
 		for (GoalProgress.WeekRow w : p.getWeek())
 		{

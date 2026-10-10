@@ -2949,7 +2949,7 @@ public class JourneyService implements RateSource
 		for (Goal g : profile.getGoals())
 		{
 			Goal copy = gson.fromJson(gson.toJson(g), Goal.class);
-			result.add(GoalPlanner.compute(copy, state(), this, config.hoursPerWeek(), today, now));
+			result.add(GoalPlanner.compute(copy, state(), this, config.hoursPerWeek(), config.finishFromPace(), today, now));
 		}
 		return result;
 	}
