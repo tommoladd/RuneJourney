@@ -419,7 +419,7 @@ public interface RuneJourneyConfig extends Config
 	@ConfigItem(
 		keyName = "trackSupplies",
 		name = "Track supplies used",
-		description = "Count the GE value of food you eat and potion doses you drink, and show profit after supplies",
+		description = "Count the GE value of food you eat, potion doses you drink and weapon charges you use, and show profit after supplies",
 		section = wealthSection,
 		position = 2
 	)

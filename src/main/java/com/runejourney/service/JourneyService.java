@@ -1161,9 +1161,11 @@ public class JourneyService implements RateSource
 			}
 		}
 
+		Map<String, Long> merged = new HashMap<>(current);
+		previous.forEach((k, v) -> merged.merge(k, v, Math::max));
 		xp.clear();
-		xp.putAll(current);
-		profile.setLastXp(new HashMap<>(current));
+		xp.putAll(merged);
+		profile.setLastXp(new HashMap<>(merged));
 		profile.setLastXpAt(System.currentTimeMillis());
 		profileDirty = true;
 		baselineSet = true;

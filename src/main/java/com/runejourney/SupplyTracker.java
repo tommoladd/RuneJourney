@@ -5,6 +5,8 @@ import java.util.*;
 import java.util.regex.Pattern;
 import javax.inject.*;
 import net.runelite.api.*;
+import net.runelite.api.gameval.AnimationID;
+import net.runelite.api.gameval.ItemID;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.util.Text;
 
@@ -16,12 +18,36 @@ class SupplyTracker
 	private static final String[] PORTION_PREFIXES = {"half a ", "half an ", "1/2 ", "2/3 ", "slice of "};
 	private static final Set<String> CONTAINERS = Set.of("vial", "pie dish", "bowl", "jug", "empty cup",
 		"beer glass", "cocktail glass", "empty gourd vial");
+	private static final Map<Integer, Charge> CHARGED = new HashMap<>();
+
+	static
+	{
+		charge(new int[]{ItemID.SCYTHE_OF_VITUR, ItemID.SCYTHE_OF_VITUR_OR, ItemID.SCYTHE_OF_VITUR_BL},
+			new int[]{AnimationID.SCYTHE_OF_VITUR_ATTACK}, ItemID.BLOODRUNE, 2, ItemID.VIAL_BLOOD, 0.01);
+		charge(new int[]{ItemID.TUMEKENS_SHADOW}, new int[]{AnimationID.TOA_SOT_CAST_B}, ItemID.SOULRUNE, 2, ItemID.CHAOSRUNE, 5);
+		charge(new int[]{ItemID.EYE_OF_AYAK}, new int[]{AnimationID.HUMAN_EYE_OF_AYAK_NORMAL, AnimationID.HUMAN_EYE_OF_AYAK_SPECIAL},
+			ItemID.DEMON_TEAR, 1);
+		charge(new int[]{ItemID.SANGUINESTI_STAFF, ItemID.SANGUINESTI_STAFF_OR}, new int[]{AnimationID.HUMAN_CASTWAVE_STAFF},
+			ItemID.BLOODRUNE, 2);
+		charge(new int[]{ItemID.TOTS_CHARGED, ItemID.TOTS_I_CHARGED}, new int[]{AnimationID.HUMAN_CASTWAVE_STAFF},
+			ItemID.DEATHRUNE, 1, ItemID.CHAOSRUNE, 1, ItemID.FIRERUNE, 5, ItemID.COINS, 10);
+		charge(new int[]{ItemID.TOXIC_TOTS_CHARGED, ItemID.TOXIC_TOTS_I_CHARGED}, new int[]{AnimationID.HUMAN_CASTWAVE_STAFF},
+			ItemID.DEATHRUNE, 1, ItemID.CHAOSRUNE, 1, ItemID.FIRERUNE, 5, ItemID.SNAKEBOSS_SCALE, 1);
+		charge(new int[]{ItemID.TOXIC_BLOWPIPE_LOADED, ItemID.TOXIC_BLOWPIPE_LOADED_ORNAMENT},
+			new int[]{AnimationID.SNAKEBOSS_BLOWPIPE_ATTACK}, ItemID.SNAKEBOSS_SCALE, 2 / 3.0);
+		charge(new int[]{ItemID.VENATOR_BOW, ItemID.VENATOR_BOW_ORNAMENT}, new int[]{AnimationID.HUMAN_WEAPON_BOW_VENATOR01_SHOOT},
+			ItemID.ANCIENT_ESSENCE, 1);
+		charge(new int[]{ItemID.WILD_CAVE_BOW_CHARGED, ItemID.WILD_CAVE_WEBWEAVER_CHARGED},
+			new int[]{AnimationID.HUMAN_BOW, AnimationID.HUMAN_SPECIAL01_WEBWEAVER}, ItemID.WILD_CAVE_SHARD, 1);
+		charge(new int[]{ItemID.ABYSSAL_TENTACLE}, new int[]{AnimationID.SLAYER_ABYSSAL_WHIP_ATTACK}, ItemID.ABYSSAL_WHIP, 0.0001);
+	}
 
 	private final ItemManager itemManager;
 	private final JourneyService service;
 
 	private Map<Integer, Integer> lastInventory;
 	private final List<Pending> pending = new ArrayList<>();
+	private int lastAttackTick = -1;
 
 	@Inject
 	SupplyTracker(ItemManager itemManager, JourneyService service)
@@ -46,6 +72,42 @@ class SupplyTracker
 		if (o.equalsIgnoreCase("Eat") || o.equalsIgnoreCase("Drink"))
 		{
 			pending.add(new Pending(itemManager.canonicalize(itemId), tick));
+		}
+	}
+
+	void onAttack(int weaponId, int animation, int tick)
+	{
+		Charge c = CHARGED.get(weaponId);
+		if (c == null || !c.animations.contains(animation) || tick == lastAttackTick)
+		{
+			return;
+		}
+		lastAttackTick = tick;
+		double cost = 0;
+		for (int i = 0; i < c.items.length; i++)
+		{
+			cost += (c.items[i] == ItemID.COINS ? 1 : itemManager.getItemPrice(c.items[i])) * c.perCharge[i];
+		}
+		service.onSupplyUsed(name(weaponId) + " charges", 1, Math.round(cost));
+	}
+
+	private static void charge(int[] weapons, int[] animations, double... cost)
+	{
+		Charge c = new Charge();
+		for (int a : animations)
+		{
+			c.animations.add(a);
+		}
+		c.items = new int[cost.length / 2];
+		c.perCharge = new double[cost.length / 2];
+		for (int i = 0; i < c.items.length; i++)
+		{
+			c.items[i] = (int) cost[i * 2];
+			c.perCharge[i] = cost[i * 2 + 1];
+		}
+		for (int w : weapons)
+		{
+			CHARGED.put(w, c);
 		}
 	}
 
@@ -134,6 +196,13 @@ class SupplyTracker
 			}
 		}
 		return c;
+	}
+
+	private static final class Charge
+	{
+		final Set<Integer> animations = new HashSet<>();
+		int[] items;
+		double[] perCharge;
 	}
 
 	private static final class Pending
