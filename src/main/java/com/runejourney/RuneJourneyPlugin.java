@@ -460,7 +460,7 @@ public class RuneJourneyPlugin extends Plugin
 				xp.put(s.name(), v);
 				sum += v;
 			}
-			if (sum <= 0)
+			if (sum <= 0 || xp.get(Skill.HITPOINTS.name()) < Experience.getXpForLevel(10))
 			{
 				return;
 			}
@@ -860,6 +860,17 @@ public class RuneJourneyPlugin extends Plugin
 		if (event.getActor() == client.getLocalPlayer())
 		{
 			service.onDeath(client.getTickCount());
+		}
+	}
+
+	@Subscribe
+	public void onAnimationChanged(AnimationChanged event)
+	{
+		ItemContainer worn = event.getActor() == client.getLocalPlayer() ? client.getItemContainer(InventoryID.WORN) : null;
+		Item weapon = worn == null ? null : worn.getItem(EquipmentInventorySlot.WEAPON.getSlotIdx());
+		if (weapon != null)
+		{
+			supplyTracker.onAttack(weapon.getId(), event.getActor().getAnimation(), client.getTickCount());
 		}
 	}
 
