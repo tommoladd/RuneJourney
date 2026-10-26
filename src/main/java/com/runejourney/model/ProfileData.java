@@ -27,13 +27,8 @@ public class ProfileData
 	private long inventoryCash;
 	private Map<Integer, long[]> geSlots = new HashMap<>();
 
-	private Map<String, Map<Integer, Integer>> holdings = new HashMap<>();
-	private Map<String, Long> wealthParts = new HashMap<>();
-	private boolean bankValueKnown;
 	private long bankValue;
-	private long inventoryValue;
-	private long equipmentValue;
-	private long bestWealth;
+	private long bankValueAt;
 
 	private Map<String, List<ClogItem>> collectionLog = new HashMap<>();
 	private Map<String, List<String>> collectionLogTabs = new LinkedHashMap<>();

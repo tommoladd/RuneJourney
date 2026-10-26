@@ -133,6 +133,10 @@ final class NewGoalDialog
 			type.setSelectedItem(existing.getType());
 			type.setEnabled(false);
 		}
+		else
+		{
+			type.removeItem(GoalType.NET_WORTH);
+		}
 		type.addActionListener(e -> updateFields(true));
 		updateFields(existing == null);
 		if (existing != null)
@@ -160,10 +164,10 @@ final class NewGoalDialog
 
 	private void pickItems()
 	{
-		List<GoalItem> picked = ItemSearchDialog.show(form, ctx.getItemIndex(), ctx.getItemManager(), items);
+		boolean purchase = type.getSelectedItem() == GoalType.PURCHASE;
+		List<GoalItem> picked = ItemSearchDialog.show(form, ctx.getItemIndex(), ctx.getItemManager(), items, !purchase);
 		if (picked != null)
 		{
-			boolean purchase = type.getSelectedItem() == GoalType.PURCHASE;
 			items = purchase && picked.size() > 1 ? new ArrayList<>(picked.subList(picked.size() - 1, picked.size())) : picked;
 			if (purchase && !items.isEmpty())
 			{
@@ -183,12 +187,17 @@ final class NewGoalDialog
 			itemsSummary.setText("<html><small>No items chosen yet</small></html>");
 			return;
 		}
-		String names = items.stream().limit(4).map(GoalItem::getName).collect(Collectors.joining(", "));
+		String names = items.stream().limit(4).map(NewGoalDialog::itemLabel).collect(Collectors.joining(", "));
 		if (items.size() > 4)
 		{
 			names += " +" + (items.size() - 4) + " more";
 		}
 		itemsSummary.setText("<html><small>" + Ui.escape(names) + "</small></html>");
+	}
+
+	private static String itemLabel(GoalItem item)
+	{
+		return item.target() > 1 ? Format.number(item.target()) + " x " + item.getName() : item.getName();
 	}
 
 	private String counterKey()
@@ -249,7 +258,7 @@ final class NewGoalDialog
 		{
 			currentHint.setText("<html><small>" + (have == null
 				? "Open your bank once so RuneJourney can value it"
-				: "Your net worth is " + Counters.format(key, have)) + "</small></html>");
+				: "Your bank is worth " + Counters.format(key, have)) + "</small></html>");
 			return;
 		}
 		if (Counters.CASH.equals(key))
@@ -668,13 +677,13 @@ final class NewGoalDialog
 				{
 					return "Obtain items";
 				}
-				String first = g.getItems().get(0).getName();
+				String first = itemLabel(g.getItems().get(0));
 				return g.getItems().size() == 1 ? first : first + " + " + (g.getItems().size() - 1) + " more";
 			}
 			case MONEY:
 				return "Save " + Counters.format(Counters.CASH, g.getTargetCount());
 			case NET_WORTH:
-				return Counters.format(Counters.WEALTH, g.getTargetCount()) + " net worth";
+				return Counters.format(Counters.WEALTH, g.getTargetCount()) + " bank value";
 			case CLOG_CATEGORY:
 				return g.getCounter() == null ? "Collection log page" : "Complete the " + Counters.suffix(g.getCounter()) + " log";
 			case PURCHASE:

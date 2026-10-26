@@ -21,10 +21,9 @@ public class OverlayData
 	private String today;
 	private String session;
 	private String streak;
-	private String netWorth;
 
 	public boolean isEmpty()
 	{
-		return goalName == null && week.isEmpty() && today == null && session == null && streak == null && netWorth == null;
+		return goalName == null && week.isEmpty() && today == null && session == null && streak == null;
 	}
 }

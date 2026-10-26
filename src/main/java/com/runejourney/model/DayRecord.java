@@ -47,4 +47,14 @@ public class DayRecord
 	{
 		this.date = date;
 	}
+
+	// Skilling at a loss doesn't count, and older builds stored losses (gear swaps read as Magic)
+	public long skillingEarned()
+	{
+		if (skillingIncomeBySkill.isEmpty())
+		{
+			return Math.max(0, skillingIncome);
+		}
+		return skillingIncomeBySkill.values().stream().mapToLong(v -> Math.max(0, v)).sum();
+	}
 }

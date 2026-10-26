@@ -66,7 +66,6 @@ public class RuneJourneyOverlay extends OverlayPanel
 		line("Today", d.getToday());
 		line("Session", d.getSession());
 		line("Streak", d.getStreak());
-		line("Net worth", d.getNetWorth());
 		return super.render(graphics);
 	}
 

@@ -30,13 +30,6 @@ public interface RuneJourneyConfig extends Config
 	String plannerSection = "planner";
 
 	@ConfigSection(
-		name = "Wealth",
-		description = "Net worth tracking (bank, inventory and equipment at GE prices). Stays on your computer unless cloud sync is on.",
-		position = 3
-	)
-	String wealthSection = "wealth";
-
-	@ConfigSection(
 		name = "Overlay",
 		description = "An optional in-game overlay showing your goals and progress",
 		position = 4
@@ -207,6 +200,18 @@ public interface RuneJourneyConfig extends Config
 	default boolean chatAnnouncements()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = "trackSupplies",
+		name = "Track supplies used",
+		description = "List the GE value of food you eat, potion doses you drink and weapon charges you use",
+		section = journeySection,
+		position = 10
+	)
+	default boolean trackSupplies()
+	{
+		return false;
 	}
 
 	@ConfigItem(
@@ -393,42 +398,6 @@ public interface RuneJourneyConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "trackWealth",
-		name = "Track net worth",
-		description = "Value your bank (when you open it), potion storage, inventory, equipment and Grand Exchange offers at GE prices to chart your net worth",
-		section = wealthSection,
-		position = 0
-	)
-	default boolean trackWealth()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "wealthMilestones",
-		name = "Net worth milestones",
-		description = "Comma separated amounts (e.g. 100m, 1b) to celebrate in your Journey",
-		section = wealthSection,
-		position = 1
-	)
-	default String wealthMilestones()
-	{
-		return "10m,25m,50m,100m,250m,500m,1b,2b,5b,10b";
-	}
-
-	@ConfigItem(
-		keyName = "trackSupplies",
-		name = "Track supplies used",
-		description = "Count the GE value of food you eat, potion doses you drink and weapon charges you use, and show profit after supplies",
-		section = wealthSection,
-		position = 2
-	)
-	default boolean trackSupplies()
-	{
-		return true;
-	}
-
-	@ConfigItem(
 		keyName = "showOverlay",
 		name = "Show overlay",
 		description = "Show RuneJourney progress on the game screen",
@@ -509,18 +478,6 @@ public interface RuneJourneyConfig extends Config
 		position = 6
 	)
 	default boolean overlayStreak()
-	{
-		return false;
-	}
-
-	@ConfigItem(
-		keyName = "overlayNetWorth",
-		name = "Net worth",
-		description = "Show your net worth and today's change",
-		section = overlaySection,
-		position = 7
-	)
-	default boolean overlayNetWorth()
 	{
 		return false;
 	}

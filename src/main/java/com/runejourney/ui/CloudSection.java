@@ -343,8 +343,8 @@ class CloudSection
 	{
 		int ok = JOptionPane.showConfirmDialog(card, "Make " + s.getAccount() + "'s journey public?\n\n"
 				+ "Anyone can see its page on the RuneJourney website, with your RuneScape name, your character\n"
-				+ "in 3D, levels, kills, timeline, goals and records. Screenshots, notes, memories and net worth\n"
-				+ "stay hidden unless you show them on the website. You can make it private again at any time.",
+				+ "in 3D, levels, kills, timeline, goals and records. Screenshots, notes and memories stay hidden\n"
+				+ "unless you show them on the website. You can make it private again at any time.",
 			"RuneJourney", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
 		if (ok == JOptionPane.OK_OPTION)
 		{

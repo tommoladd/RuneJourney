@@ -1,6 +1,7 @@
 package com.runejourney.planner;
 
 import com.runejourney.model.*;
+import com.runejourney.util.Format;
 import java.time.*;
 import java.time.temporal.*;
 import java.util.*;
@@ -15,6 +16,19 @@ public final class GoalPlanner
 
 	private GoalPlanner()
 	{
+	}
+
+	public static String itemsText(Goal goal)
+	{
+		List<GoalItem> items = goal.getItems();
+		if (items.size() == 1 && items.get(0).target() > 1)
+		{
+			GoalItem item = items.get(0);
+			int have = item.isObtained() ? Math.max(item.getCollected(), item.target()) : item.getCollected();
+			return Format.number(have) + " / " + Format.number(item.target());
+		}
+		long got = items.stream().filter(GoalItem::isObtained).count();
+		return got + " / " + items.size() + " items";
 	}
 
 	public static int hoursPerWeek(Goal goal, int defaultHours)
@@ -207,8 +221,7 @@ public final class GoalPlanner
 				{
 					return 0;
 				}
-				long got = goal.getItems().stream().filter(GoalItem::isObtained).count();
-				return got / (double) goal.getItems().size();
+				return goal.getItems().stream().mapToDouble(GoalItem::progress).sum() / goal.getItems().size();
 			}
 			default:
 				if (goal.getType().isCounter() && goal.getTargetCount() > 0)
