@@ -24,6 +24,8 @@ class IncomeTracker
 		Skill.RANGED, Skill.SLAYER);
 	private static final Set<Integer> BLOCKING_INTERFACES = new HashSet<>();
 	private static final int BLOCK_GRACE_TICKS = 2;
+	// Vengeance and other combat utility spells give Magic XP with no Hitpoints XP
+	private static final int COMBAT_MAGIC_TICKS = 50;
 
 	static
 	{
@@ -47,6 +49,7 @@ class IncomeTracker
 	private final Set<Integer> openBlocking = new HashSet<>();
 	private int blockedUntil;
 	private int suppressedTick = -1;
+	private int lastCombatTick = -1;
 
 	@Inject
 	IncomeTracker(ItemManager itemManager, JourneyService service)
@@ -65,6 +68,7 @@ class IncomeTracker
 		openBlocking.clear();
 		blockedUntil = 0;
 		suppressedTick = -1;
+		lastCombatTick = -1;
 	}
 
 	void onInventory(ItemContainer container)
@@ -152,6 +156,12 @@ class IncomeTracker
 	private Outcome process(int tick)
 	{
 		pendingDelta.values().removeIf(v -> v == 0);
+		boolean combat = isCombat(pendingXp.keySet());
+		if (combat)
+		{
+			lastCombatTick = tick;
+		}
+		combat |= isCombatMagic(pendingXp.keySet(), tick, lastCombatTick);
 		if ((pendingDelta.isEmpty() && pendingXp.isEmpty()) || !openBlocking.isEmpty() || tick <= blockedUntil
 			|| suppressedTick >= tick - 1)
 		{
@@ -159,7 +169,7 @@ class IncomeTracker
 		}
 		if (pendingDelta.isEmpty())
 		{
-			return isCombat(pendingXp.keySet()) ? Outcome.SKIPPED : Outcome.UNMATCHED;
+			return combat ? Outcome.SKIPPED : Outcome.UNMATCHED;
 		}
 
 		long coinsGained = 0;
@@ -194,7 +204,7 @@ class IncomeTracker
 			}
 			return Outcome.UNMATCHED;
 		}
-		if (isCombat(pendingXp.keySet()))
+		if (combat)
 		{
 			return Outcome.SKIPPED;
 		}
@@ -227,5 +237,10 @@ class IncomeTracker
 			}
 		}
 		return false;
+	}
+
+	static boolean isCombatMagic(Set<Skill> skills, int tick, int lastCombatTick)
+	{
+		return skills.contains(Skill.MAGIC) && lastCombatTick >= 0 && tick - lastCombatTick <= COMBAT_MAGIC_TICKS;
 	}
 }

@@ -403,12 +403,6 @@ public class ReportService
 		counterRow(rows, "Collection log", Counters.COLLECTION_LOG, a, b);
 		counterRow(rows, "CA points", Counters.CA_POINTS, a, b);
 		counterRow(rows, "Clues completed", Counters.clues(Counters.ALL_TIERS), a, b);
-		Long wa = a.get(Counters.WEALTH);
-		Long wb = b.get(Counters.WEALTH);
-		if (wa != null && wb != null)
-		{
-			rows.add(new String[]{"Net worth", Format.compact(wa), Format.compact(wb), (wb >= wa ? "+" : "-") + Format.compact(Math.abs(wb - wa))});
-		}
 
 		h.append("<section><h2>Account progress</h2><table><tr><th></th><th>Start</th><th>End</th><th>Change</th></tr>");
 		for (String[] row : rows)

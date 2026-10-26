@@ -10,9 +10,8 @@ public final class CsvExport
 {
 	private static final Metric[] COLUMNS = {
 		Metric.PLAYTIME, Metric.XP, Metric.LEVELS, Metric.INCOME, Metric.LOOT, Metric.SKILLING_INCOME, Metric.SUPPLIES,
-		Metric.PROFIT, Metric.KILLS, Metric.CLUES, Metric.CLUE_LOOT, Metric.COLLECTION_LOG, Metric.COMBAT_TASKS,
+		Metric.KILLS, Metric.CLUES, Metric.CLUE_LOOT, Metric.COLLECTION_LOG, Metric.COMBAT_TASKS,
 		Metric.CA_POINTS, Metric.QUESTS, Metric.PERSONAL_BESTS, Metric.PETS, Metric.SLAYER_TASKS, Metric.DEATHS,
-		Metric.NET_WORTH,
 	};
 
 	private CsvExport()

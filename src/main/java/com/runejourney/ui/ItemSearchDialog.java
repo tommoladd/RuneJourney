@@ -1,6 +1,7 @@
 package com.runejourney.ui;
 
 import com.runejourney.model.GoalItem;
+import com.runejourney.util.Format;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.*;
@@ -25,9 +26,13 @@ final class ItemSearchDialog
 	private final DefaultListModel<ItemIndex.Entry> chosen = new DefaultListModel<>();
 	private final JList<ItemIndex.Entry> resultList = new JList<>(results);
 	private final JList<ItemIndex.Entry> chosenList = new JList<>(chosen);
+	private final Map<String, Integer> amounts = new HashMap<>();
+	private final JSpinner amount = new JSpinner(new SpinnerNumberModel(1, 1, Integer.MAX_VALUE, 1));
+	private boolean showingAmount;
 	private boolean confirmed;
 
-	private ItemSearchDialog(Component parent, ItemIndex index, ItemManager itemManager, List<GoalItem> initial)
+	private ItemSearchDialog(Component parent, ItemIndex index, ItemManager itemManager, List<GoalItem> initial,
+		boolean withAmounts)
 	{
 		this.index = index;
 		this.itemManager = itemManager;
@@ -38,6 +43,7 @@ final class ItemSearchDialog
 		for (GoalItem item : initial)
 		{
 			chosen.addElement(new ItemIndex.Entry(item.getId(), item.getName()));
+			amounts.put(key(item.getName()), item.target());
 		}
 
 		ItemRenderer renderer = new ItemRenderer();
@@ -108,7 +114,24 @@ final class ItemSearchDialog
 		right.add(new JScrollPane(chosenList), BorderLayout.CENTER);
 		JButton remove = new JButton("< Remove");
 		remove.addActionListener(e -> removeSelected());
-		right.add(remove, BorderLayout.SOUTH);
+		if (withAmounts)
+		{
+			amount.setEnabled(false);
+			amount.setToolTipText("Select an item above, then set how many you want, e.g. 450 shards");
+			amount.addChangeListener(e -> setAmount());
+			chosenList.addListSelectionListener(e -> showAmount());
+			JPanel amountRow = new JPanel(new BorderLayout(4, 0));
+			amountRow.add(new JLabel("Amount needed"), BorderLayout.WEST);
+			amountRow.add(amount, BorderLayout.CENTER);
+			JPanel south = new JPanel(new GridLayout(2, 1, 0, 4));
+			south.add(amountRow);
+			south.add(remove);
+			right.add(south, BorderLayout.SOUTH);
+		}
+		else
+		{
+			right.add(remove, BorderLayout.SOUTH);
+		}
 
 		JPanel lists = new JPanel(new GridLayout(1, 2, 8, 0));
 		lists.add(left);
@@ -151,7 +174,13 @@ final class ItemSearchDialog
 
 	static List<GoalItem> show(Component parent, ItemIndex index, ItemManager itemManager, List<GoalItem> initial)
 	{
-		ItemSearchDialog d = new ItemSearchDialog(parent, index, itemManager, initial);
+		return show(parent, index, itemManager, initial, false);
+	}
+
+	static List<GoalItem> show(Component parent, ItemIndex index, ItemManager itemManager, List<GoalItem> initial,
+		boolean withAmounts)
+	{
+		ItemSearchDialog d = new ItemSearchDialog(parent, index, itemManager, initial, withAmounts);
 		d.dialog.setVisible(true);
 		if (!d.confirmed)
 		{
@@ -161,9 +190,39 @@ final class ItemSearchDialog
 		for (int i = 0; i < d.chosen.size(); i++)
 		{
 			ItemIndex.Entry e = d.chosen.get(i);
-			items.add(new GoalItem(e.getId(), e.getName()));
+			GoalItem item = new GoalItem(e.getId(), e.getName());
+			int wanted = withAmounts ? d.amounts.getOrDefault(key(e.getName()), 1) : 1;
+			item.setQuantity(wanted > 1 ? wanted : 0);
+			items.add(item);
 		}
 		return items;
+	}
+
+	private static String key(String name)
+	{
+		return name.toLowerCase(Locale.ENGLISH);
+	}
+
+	private void showAmount()
+	{
+		ItemIndex.Entry e = chosenList.getSelectedValue();
+		amount.setEnabled(e != null);
+		showingAmount = true;
+		amount.setValue(e == null ? 1 : amounts.getOrDefault(key(e.getName()), 1));
+		showingAmount = false;
+	}
+
+	private void setAmount()
+	{
+		if (showingAmount)
+		{
+			return;
+		}
+		for (ItemIndex.Entry e : chosenList.getSelectedValuesList())
+		{
+			amounts.put(key(e.getName()), (Integer) amount.getValue());
+		}
+		chosenList.repaint();
 	}
 
 	private void runSearch()
@@ -231,7 +290,8 @@ final class ItemSearchDialog
 		{
 			JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 			ItemIndex.Entry e = (ItemIndex.Entry) value;
-			label.setText(e.getName());
+			int wanted = list == chosenList ? amounts.getOrDefault(key(e.getName()), 1) : 1;
+			label.setText(wanted > 1 ? Format.number(wanted) + " x " + e.getName() : e.getName());
 			label.setIcon(icon(e.getId(), list));
 			label.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
 			return label;

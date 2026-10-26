@@ -1,7 +1,6 @@
 package com.runejourney.report;
 
 import com.runejourney.model.*;
-import com.runejourney.planner.Counters;
 import java.util.*;
 import lombok.*;
 
@@ -12,12 +11,10 @@ public enum Metric
 	XP("XP gained", Unit.COUNT, Filter.SKILL, false, EnumSet.of(EventType.LEVEL, EventType.XP_MILESTONE, EventType.TOTAL_LEVEL)),
 	PLAYTIME("Time played", Unit.HOURS, Filter.NONE, false, EnumSet.of(EventType.RECORD, EventType.SESSION)),
 	LEVELS("Levels gained", Unit.COUNT, Filter.NONE, false, EnumSet.of(EventType.LEVEL, EventType.TOTAL_LEVEL)),
-	NET_WORTH("Net worth", Unit.GP, Filter.NONE, false, EnumSet.of(EventType.RECORD)),
 	INCOME("Total income", Unit.GP, Filter.NONE, false, EnumSet.of(EventType.DROP, EventType.CLUE)),
 	LOOT("Loot value", Unit.GP, Filter.SOURCE, false, EnumSet.of(EventType.DROP, EventType.CLUE, EventType.PET)),
 	SKILLING_INCOME("Skilling income", Unit.GP, Filter.SKILL, false, EnumSet.noneOf(EventType.class)),
 	SUPPLIES("Supplies used", Unit.GP, Filter.NONE, false, EnumSet.noneOf(EventType.class)),
-	PROFIT("Profit after supplies", Unit.GP, Filter.NONE, false, EnumSet.of(EventType.DROP, EventType.CLUE)),
 	KILLS("Boss kills", Unit.COUNT, Filter.BOSS, false, EnumSet.of(EventType.BOSS_KC, EventType.PERSONAL_BEST)),
 	CLUES("Clues completed", Unit.COUNT, Filter.CLUE_TIER, false, EnumSet.of(EventType.CLUE)),
 	CLUE_LOOT("Clue loot", Unit.GP, Filter.NONE, false, EnumSet.of(EventType.CLUE)),
@@ -50,17 +47,6 @@ public enum Metric
 		return label;
 	}
 
-	public boolean isBalance()
-	{
-		return this == NET_WORTH;
-	}
-
-	public double balance(DayRecord d)
-	{
-		Long v = d.getSnapshot().get(Counters.WEALTH);
-		return v == null || v <= 0 ? Double.NaN : v;
-	}
-
 	public double value(DayRecord d, String filter)
 	{
 		switch (this)
@@ -75,9 +61,9 @@ public enum Metric
 				return d.getSkillXp().getOrDefault(filter, 0L) - d.getOfflineSkillXp().getOrDefault(filter, 0L);
 			case INCOME:
 			case GP_PER_HOUR:
-				return d.getLootValue() + d.getSkillingIncome();
+				return d.getLootValue() + d.skillingEarned();
 			case SKILLING_INCOME:
-				return filter == null ? d.getSkillingIncome() : d.getSkillingIncomeBySkill().getOrDefault(filter, 0L);
+				return filter == null ? d.skillingEarned() : Math.max(0, d.getSkillingIncomeBySkill().getOrDefault(filter, 0L));
 			case PLAYTIME:
 				return hours(d);
 			case LEVELS:
@@ -91,8 +77,6 @@ public enum Metric
 				return d.getLootValue();
 			case SUPPLIES:
 				return d.getSuppliesCost();
-			case PROFIT:
-				return d.getLootValue() + d.getSkillingIncome() - d.getSuppliesCost();
 			case KILLS:
 			case KILLS_PER_HOUR:
 				if (filter != null)
@@ -120,11 +104,6 @@ public enum Metric
 				return d.getSlayerTasks();
 			case DEATHS:
 				return d.getDeaths();
-			case NET_WORTH:
-			{
-				double v = balance(d);
-				return Double.isNaN(v) ? 0 : v;
-			}
 			default:
 				return 0;
 		}
@@ -142,7 +121,7 @@ public enum Metric
 		{
 			case SKILL:
 				Map<String, Long> source = this == SKILLING_INCOME ? d.getSkillingIncomeBySkill() : d.getSkillXp();
-				source.forEach((k, v) -> parts.put(k, v.doubleValue()));
+				source.forEach((k, v) -> parts.put(k, (double) Math.max(0, v)));
 				return parts;
 			case BOSS:
 				d.getBossKills().forEach((k, v) -> parts.put(k, v.doubleValue()));

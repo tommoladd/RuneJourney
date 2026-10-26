@@ -21,7 +21,6 @@ public class PublicSnapshot
 	private List<Event> timeline;
 	private List<GoalRow> goals;
 	private List<RecordRow> records;
-	private Wealth wealth;
 
 	@Data
 	public static class Kills
@@ -80,14 +79,5 @@ public class PublicSnapshot
 		private String title;
 		private String value;
 		private String date;
-	}
-
-	@Data
-	public static class Wealth
-	{
-		@SerializedName("net_worth")
-		private long netWorth;
-		@SerializedName("as_of")
-		private String asOf;
 	}
 }

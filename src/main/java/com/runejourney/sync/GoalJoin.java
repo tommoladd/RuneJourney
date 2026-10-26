@@ -14,7 +14,7 @@ final class GoalJoin
 	static final Set<String> DONE = keys("completedAt", "story");
 	static final Set<String> ANY = keys("affordable");
 	static final Set<String> SUM = keys("purchasedQuantity", "purchaseSpent");
-	static final Set<String> ITEM_STATE = keys("obtainedAt", "source");
+	static final Set<String> ITEM_STATE = keys("obtainedAt", "source", "collected");
 
 	private GoalJoin()
 	{

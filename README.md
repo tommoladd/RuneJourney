@@ -9,15 +9,15 @@ what to do next, and builds adaptive weekly plans towards your goals.
 
 ### Today
 What you've done today (or this week, month, year...): time played, XP, levels, loot by source,
-skilling income, supplies used and profit, boss kills, clues, collection log slots, combat tasks,
-net worth and your play streak. Your day carries on across log-outs.
+skilling income, supplies used (optional), boss kills, clues, collection log slots, combat tasks
+and your play streak. Your day carries on across log-outs.
 
 ### My Goals
 - Skill levels and XP, total level, base levels, Max Cape
 - Boss kill counts, clue scrolls, combat tasks, Combat Achievement points, quest points
 - Collection log slots, or completing a collection log page
-- Obtaining items (searchable, tick off automatically from drops, clues, the collection log and the Grand Exchange)
-- Saving money, reaching a net worth, or buying an item (completes when you buy it on the Grand Exchange)
+- Obtaining items, one or a set amount like 450 shards (searchable, tick off automatically from drops, clues, the collection log and the Grand Exchange)
+- Saving money, or buying an item (completes when you buy it on the Grand Exchange)
 - Custom goals
 
 Goals can have a target date and hours per week. RuneJourney shows whether you're on track, builds a
@@ -51,7 +51,7 @@ cheer you on every 250k XP, faster ones like Crafting and Smithing every 1m. Cha
 in the plugin settings.
 
 ### Overlay (optional)
-Show a pinned goal, this week's plan, today's stats, your streak or net worth on screen.
+Show a pinned goal, this week's plan, today's stats or your streak on screen.
 
 ### Cloud sync (optional)
 Back up your journey and keep it in step on every PC you play on. Turn on **Cloud sync** in the
@@ -66,7 +66,7 @@ saved. One key covers all your accounts; make one per PC so you can revoke a los
 - Already have a journey on this PC and in the cloud? Choose to use the cloud's (this PC's is backed
   up first) or combine both.
 - Optionally make an account's journey public, at its own page on the RuneJourney website: your
-  character in 3D, levels, kills, timeline, goals and records. Notes, memories and net worth stay
+  character in 3D, levels, kills, timeline, goals and records. Notes and memories stay
   hidden unless you show them, and you choose whether it appears in the website's search.
   The character is copied while you stand still, each time you wear something new. Boss kills and
   clues are topped up from the official hiscores, and choosing **RuneJourney** in the collection
@@ -92,7 +92,7 @@ Cloud sync is off unless you turn it on. When it's on:
   never your key or a download address.
 - Delete one account's cloud data, or everything, on the website, signed in with Discord.
 
-Net worth and screenshots can be turned off in the plugin settings.
+Screenshots can be turned off in the plugin settings.
 
 ## Notes
 

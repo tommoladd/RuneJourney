@@ -6,6 +6,7 @@ import com.runejourney.planner.*;
 import com.runejourney.service.*;
 import com.runejourney.util.Format;
 import java.awt.*;
+import java.text.ParseException;
 import java.time.*;
 import java.util.*;
 import java.util.List;
@@ -16,6 +17,7 @@ import javax.swing.border.EmptyBorder;
 import net.runelite.api.Skill;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.FontManager;
+import net.runelite.client.util.QuantityFormatter;
 
 class GoalsTab extends RefreshableTab
 {
@@ -275,7 +277,7 @@ class GoalsTab extends RefreshableTab
 		}
 		if (g.getType() == GoalType.ITEMS)
 		{
-			return p.getItemsObtained() + " / " + p.getItemsTotal() + " items";
+			return GoalPlanner.itemsText(g);
 		}
 		if (g.getType().isCounter())
 		{
@@ -563,7 +565,7 @@ class GoalsTab extends RefreshableTab
 		String key = g.getCounter();
 		if (Counters.isMoney(key))
 		{
-			card.add(Ui.stat(Counters.WEALTH.equals(key) ? "Net worth" : "Cash stack", Counters.format(key, p.getCountCurrent())));
+			card.add(Ui.stat(Counters.label(key), Counters.format(key, p.getCountCurrent())));
 			if (g.getType() == GoalType.MONEY)
 			{
 				card.add(Ui.stat("Target", Counters.format(key, p.getCountTarget())));
@@ -609,7 +611,7 @@ class GoalsTab extends RefreshableTab
 		if (Counters.WEALTH.equals(g.getCounter()))
 		{
 			card.add(spacer());
-			card.add(Ui.muted("Your bank, inventory and equipment at GE prices. The bank updates whenever you open it."));
+			card.add(Ui.muted("Net worth tracking has been retired, so this goal now follows your bank's GE value. It updates whenever you open your bank."));
 		}
 		if (Counters.CA_POINTS.equals(g.getCounter()))
 		{
@@ -649,20 +651,37 @@ class GoalsTab extends RefreshableTab
 			box.setSelected(item.isObtained());
 			box.setOpaque(false);
 			box.setFocusPainted(false);
-			box.setToolTipText(item.isObtained() ? "Mark as not obtained" : "Mark as obtained");
+			boolean stack = item.target() > 1;
+			box.setToolTipText(stack ? "Set how many you have" : item.isObtained() ? "Mark as not obtained" : "Mark as obtained");
 			box.addActionListener(e ->
 			{
-				service.setItemObtained(g.getId(), item, box.isSelected());
+				if (stack)
+				{
+					Integer have = askCollected(item);
+					if (have != null)
+					{
+						service.setItemCollected(g.getId(), item, have);
+					}
+				}
+				else
+				{
+					service.setItemCollected(g.getId(), item, box.isSelected() ? 1 : 0);
+				}
 				refresh(true);
 			});
 
 			JPanel text = Ui.stack(0);
-			JLabel name = Ui.small(item.getName(), item.isObtained() ? Ui.GOOD : Color.WHITE);
+			JLabel name = Ui.small(stack ? Format.number(item.target()) + " x " + item.getName() : item.getName(),
+				item.isObtained() ? Ui.GOOD : Color.WHITE);
 			text.add(name);
 			if (item.isObtained())
 			{
 				String when = Format.date(toDate(item.getObtainedAt()));
 				text.add(Ui.small(when + (item.getSource() != null ? " · " + item.getSource() : ""), Ui.MUTED));
+			}
+			else if (stack)
+			{
+				text.add(Ui.small(Format.number(item.getCollected()) + " / " + Format.number(item.target()), Ui.MUTED));
 			}
 
 			JLabel icon = new JLabel();
@@ -686,6 +705,25 @@ class GoalsTab extends RefreshableTab
 		card.add(Ui.muted("Items tick off automatically from drops, clue caskets and collection log messages. "
 			+ "Tick anything you already had."));
 		return card;
+	}
+
+	private Integer askCollected(GoalItem item)
+	{
+		Object answer = JOptionPane.showInputDialog(this, "How many " + item.getName() + " do you have towards "
+			+ Format.number(item.target()) + "?", "Items collected", JOptionPane.PLAIN_MESSAGE, null, null,
+			String.valueOf(item.isObtained() ? Math.max(item.getCollected(), item.target()) : item.getCollected()));
+		if (answer == null)
+		{
+			return null;
+		}
+		try
+		{
+			return (int) Math.min(Integer.MAX_VALUE, QuantityFormatter.parseQuantity(answer.toString().trim()));
+		}
+		catch (ParseException ex)
+		{
+			return null;
+		}
 	}
 
 	private JPanel clogMissing(String page)

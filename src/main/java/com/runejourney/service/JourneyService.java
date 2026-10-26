@@ -166,7 +166,6 @@ public class JourneyService implements RateSource
 			}
 			d.getEvents().forEach(e -> eventIds.add(e.getId()));
 		}
-		migrateWealth();
 		if (profile.getPreferredMethods().values().removeIf(LEGACY_OWN_RATE::equals))
 		{
 			profileDirty = true;
@@ -180,22 +179,6 @@ public class JourneyService implements RateSource
 		}
 		resetSessionState();
 		changed(true);
-	}
-
-	private void migrateWealth()
-	{
-		if (profile.getWealthParts().isEmpty() && profile.isBankValueKnown() && profile.getBankValue() > 0)
-		{
-			profile.getWealthParts().put(BANK, profile.getBankValue());
-			profileDirty = true;
-		}
-		if (profile.getBankValue() != 0 || profile.getInventoryValue() != 0 || profile.getEquipmentValue() != 0)
-		{
-			profile.setBankValue(0);
-			profile.setInventoryValue(0);
-			profile.setEquipmentValue(0);
-			profileDirty = true;
-		}
 	}
 
 	private void cleanEventText()
@@ -219,120 +202,27 @@ public class JourneyService implements RateSource
 		}
 	}
 
-	public static final String BANK = "bank";
-
-	private long netWorth()
+	// Net worth goals can no longer be created; ones made before keep going off the bank's value
+	public synchronized boolean wantsBankValue()
 	{
-		return profile.getWealthParts().values().stream().mapToLong(Long::longValue).sum();
+		return profile != null && profile.getGoals().stream()
+			.anyMatch(g -> g.getType() == GoalType.NET_WORTH && !g.isComplete());
 	}
 
-	public synchronized void onHoldings(String part, Map<Integer, Integer> items)
+	public synchronized void onBankValue(long value)
 	{
-		if (profile == null || !config.trackWealth())
+		if (profile == null || (profile.getBankValueAt() > 0 && profile.getBankValue() == value))
 		{
 			return;
 		}
-		profile.getHoldings().put(part, new HashMap<>(items));
+		profile.setBankValue(value);
+		profile.setBankValueAt(System.currentTimeMillis());
 		profileDirty = true;
-	}
-
-	public synchronized Map<String, Map<Integer, Integer>> holdings()
-	{
-		Map<String, Map<Integer, Integer>> copy = new HashMap<>();
-		if (profile != null)
-		{
-			profile.getHoldings().forEach((part, items) -> copy.put(part, new HashMap<>(items)));
-		}
-		return copy;
-	}
-
-	public synchronized void onWealth(String part, long value)
-	{
-		onWealth(Collections.singletonMap(part, value));
-	}
-
-	public synchronized void onWealth(Map<String, Long> parts)
-	{
-		if (profile == null || !config.trackWealth() || parts.isEmpty())
-		{
-			return;
-		}
-		boolean knownBefore = profile.isBankValueKnown();
-		boolean newPart = !profile.getWealthParts().keySet().containsAll(parts.keySet());
-		long before = netWorth();
-		profile.getWealthParts().putAll(parts);
-		if (parts.containsKey(BANK))
-		{
-			profile.setBankValueKnown(true);
-		}
-		long now = netWorth();
-		if (now == before && knownBefore)
-		{
-			return;
-		}
-		profileDirty = true;
-		if (!profile.isBankValueKnown())
-		{
-			return;
-		}
-		if (!knownBefore || newPart)
-		{
-			profile.setBestWealth(Math.max(profile.getBestWealth(), now));
-		}
-		else if (now > profile.getBestWealth())
-		{
-			for (long m : wealthMilestones())
-			{
-				if (profile.getBestWealth() < m && now >= m)
-				{
-					JourneyEvent e = event(EventType.RECORD, "Net worth passed " + Format.compact(m), Format.compact(now) + " gp");
-					e.setId(EventIds.fixed("wealth", m));
-					e.setValue(m);
-					e.setHighlight(true);
-					addEvent(e, false);
-					announce("Your net worth passed " + Format.compact(m) + "!");
-				}
-			}
-			profile.setBestWealth(now);
-		}
 		if (baselineSet)
 		{
 			checkGoals();
 		}
 		changed(false);
-	}
-
-	private List<Long> wealthMilestones()
-	{
-		List<Long> out = new ArrayList<>();
-		for (String part : config.wealthMilestones().split(","))
-		{
-			try
-			{
-				out.add(net.runelite.client.util.QuantityFormatter.parseQuantity(part.trim()));
-			}
-			catch (java.text.ParseException | NumberFormatException ignored)
-			{
-			}
-		}
-		Collections.sort(out);
-		return out;
-	}
-
-	public synchronized long[] netWorthToday()
-	{
-		if (profile == null || !config.trackWealth() || !profile.isBankValueKnown())
-		{
-			return null;
-		}
-		long now = netWorth();
-		Map.Entry<String, DayRecord> before = days.lowerEntry(LocalDate.now().toString());
-		while (before != null && before.getValue().getSnapshot().get(Counters.WEALTH) == null)
-		{
-			before = days.lowerEntry(before.getKey());
-		}
-		Long start = before == null ? null : before.getValue().getSnapshot().get(Counters.WEALTH);
-		return new long[]{now, start == null ? Long.MIN_VALUE : now - start};
 	}
 
 	public synchronized void onCollectionLogPage(String page, List<ClogItem> items)
@@ -447,6 +337,11 @@ public class JourneyService implements RateSource
 			for (GoalItem wanted : g.getItems())
 			{
 				if (wanted.isObtained())
+				{
+					continue;
+				}
+				// The log only says an item was seen once, not how many there were
+				if (wanted.target() > 1)
 				{
 					continue;
 				}
@@ -586,7 +481,7 @@ public class JourneyService implements RateSource
 		}
 		dayRecord(out, "Most XP in a day", d -> d.getXpGained(), v -> Format.compact(v) + " XP");
 		dayRecord(out, "Most time played in a day", d -> d.getPlayMillis(), Format::duration);
-		dayRecord(out, "Best income day", d -> d.getLootValue() + d.getSkillingIncome(), v -> Format.compact(v) + " gp");
+		dayRecord(out, "Best income day", d -> d.getLootValue() + d.skillingEarned(), v -> Format.compact(v) + " gp");
 		dayRecord(out, "Most boss kills in a day", d -> d.getBossKills().values().stream().mapToLong(Integer::longValue).sum(),
 			v -> Format.number(v) + (v == 1 ? " kill" : " kills"));
 		dayRecord(out, "Most levels in a day", d -> d.getLevelsGained(), v -> v + (v == 1 ? " level" : " levels"));
@@ -635,10 +530,6 @@ public class JourneyService implements RateSource
 		if (bestPlan > 0)
 		{
 			out.add(new PersonalRecord("Weekly plans met in a row", bestPlan + (bestPlan == 1 ? " week" : " weeks"), null));
-		}
-		if (profile.getBestWealth() > 0 && config.trackWealth())
-		{
-			out.add(new PersonalRecord("Highest net worth", Format.compact(profile.getBestWealth()) + " gp", null));
 		}
 		return out;
 	}
@@ -885,7 +776,7 @@ public class JourneyService implements RateSource
 			if (d != null)
 			{
 				data.setToday(Format.duration(d.getPlayMillis()) + " · " + Format.compact(d.getXpGained()) + " XP · "
-					+ Format.compact(d.getLootValue() + d.getSkillingIncome()) + " gp");
+					+ Format.compact(d.getLootValue() + d.skillingEarned()) + " gp");
 			}
 		}
 		if (config.overlaySession())
@@ -905,15 +796,6 @@ public class JourneyService implements RateSource
 				data.setStreak(streaks[0] + (streaks[0] == 1 ? "-day streak" : "-day streak") + " (best " + streaks[1] + ")");
 			}
 		}
-		if (config.overlayNetWorth())
-		{
-			long[] worth = netWorthToday();
-			if (worth != null)
-			{
-				data.setNetWorth(Format.compact(worth[0]) + " gp" + (worth[1] == Long.MIN_VALUE ? ""
-					: " (" + (worth[1] >= 0 ? "+" : "") + Format.compact(worth[1]) + " today)"));
-			}
-		}
 		return data;
 	}
 
@@ -926,7 +808,7 @@ public class JourneyService implements RateSource
 		}
 		if (g.getType() == GoalType.ITEMS)
 		{
-			return p.getItemsObtained() + " / " + p.getItemsTotal() + " items";
+			return GoalPlanner.itemsText(g);
 		}
 		if (g.getType() == GoalType.CUSTOM)
 		{
@@ -1015,7 +897,9 @@ public class JourneyService implements RateSource
 		DayRecord todayRecord = days.get(LocalDate.now().toString());
 		if (todayRecord != null && baselineSet)
 		{
-			todayRecord.setSnapshot(state());
+			Map<String, Long> snapshot = state();
+			snapshot.remove(Counters.WEALTH);
+			todayRecord.setSnapshot(snapshot);
 		}
 		if (profile.getSync() != null)
 		{
@@ -1687,9 +1571,12 @@ public class JourneyService implements RateSource
 		{
 			return;
 		}
-		DayRecord d = today();
-		d.setSkillingIncome(d.getSkillingIncome() + value);
-		d.getSkillingIncomeBySkill().merge(skill.name(), value, Long::sum);
+		if (value > 0)
+		{
+			DayRecord d = today();
+			d.setSkillingIncome(d.getSkillingIncome() + value);
+			d.getSkillingIncomeBySkill().merge(skill.name(), value, Long::sum);
+		}
 		if (!gained.isEmpty())
 		{
 			itemsObtained(gained, skill.getName());
@@ -1726,7 +1613,7 @@ public class JourneyService implements RateSource
 			}
 		}
 		profileDirty = true;
-		itemsObtained(Collections.singletonList(new LootItem(-1, item, 1, 0)), recentKcSource());
+		itemsObtained(Collections.singletonList(new LootItem(-1, item, 1, 0)), recentKcSource(), false);
 		checkGoals();
 	}
 
@@ -2147,9 +2034,9 @@ public class JourneyService implements RateSource
 		state.put(Counters.QUEST_POINTS, (long) profile.getQuestPoints());
 		state.put(Counters.COLLECTION_LOG, (long) profile.getCollectionLogSlots());
 		state.put(Counters.CASH, profile.getBankCash() + profile.getInventoryCash());
-		if (config.trackWealth() && profile.isBankValueKnown())
+		if (profile.getBankValueAt() > 0)
 		{
-			state.put(Counters.WEALTH, netWorth());
+			state.put(Counters.WEALTH, profile.getBankValue());
 		}
 		profile.getCollectionLog().forEach((page, items) ->
 			state.put(Counters.clogPage(page), items.stream().filter(ClogItem::isObtained).count()));
@@ -2565,7 +2452,9 @@ public class JourneyService implements RateSource
 		{
 			return "That goal no longer exists.";
 		}
-		if (goal.getType() != GoalType.CUSTOM && !goal.isComplete() && GoalPlanner.isComplete(edited, state()))
+		// Item goals are judged on the merged items below, not the edited copy's stale state
+		if (goal.getType() != GoalType.CUSTOM && goal.getType() != GoalType.ITEMS && !goal.isComplete()
+			&& GoalPlanner.isComplete(edited, state()))
 		{
 			return "You've already reached that target. Pick a higher one.";
 		}
@@ -2594,6 +2483,23 @@ public class JourneyService implements RateSource
 				GoalItem existing = goal.getItems().stream()
 					.filter(i -> i.getId() == item.getId() || i.getName().equalsIgnoreCase(item.getName()))
 					.findFirst().orElse(null);
+				if (existing != null && existing.target() != item.target())
+				{
+					// Items obtained before amounts existed have no count, so they had at least the old amount
+					int had = existing.isObtained() ? Math.max(existing.getCollected(), existing.target()) : existing.getCollected();
+					existing.setQuantity(item.getQuantity());
+					existing.setCollected(had);
+					if (had < existing.target())
+					{
+						existing.setObtainedAt(0);
+						existing.setSource(null);
+					}
+					else if (!existing.isObtained())
+					{
+						existing.setObtainedAt(System.currentTimeMillis());
+						existing.setSource("Marked manually");
+					}
+				}
 				merged.add(existing != null ? existing : item);
 			}
 			goal.setItems(merged);
@@ -2648,6 +2554,12 @@ public class JourneyService implements RateSource
 
 	private void itemsObtained(List<LootItem> items, String source)
 	{
+		itemsObtained(items, source, true);
+	}
+
+	// counted is false when only a collection log message says the item arrived, without an amount
+	private void itemsObtained(List<LootItem> items, String source, boolean counted)
+	{
 		long now = System.currentTimeMillis();
 		for (Goal g : profile.getGoals())
 		{
@@ -2665,24 +2577,41 @@ public class JourneyService implements RateSource
 				{
 					boolean match = (item.getId() > 0 && item.getId() == wanted.getId())
 						|| (item.getName() != null && item.getName().equalsIgnoreCase(wanted.getName()));
-					if (match)
+					if (!match)
+					{
+						continue;
+					}
+					if (counted)
+					{
+						wanted.setCollected((int) Math.min(Integer.MAX_VALUE, (long) wanted.getCollected() + Math.max(1, item.getQuantity())));
+					}
+					else if (wanted.target() == 1)
+					{
+						wanted.setCollected(Math.max(1, wanted.getCollected()));
+					}
+					profileDirty = true;
+					if (wanted.getCollected() >= wanted.target())
 					{
 						wanted.setObtainedAt(now);
 						wanted.setSource(source);
-						profileDirty = true;
 						long got = g.getItems().stream().filter(GoalItem::isObtained).count();
-						JourneyEvent e = event(EventType.GOAL_PROGRESS, "Obtained " + wanted.getName(),
+						JourneyEvent e = event(EventType.GOAL_PROGRESS, "Obtained " + itemLabel(wanted),
 							got + " / " + g.getItems().size() + " for " + g.getName() + (source != null ? " · " + source : ""));
 						e.setHighlight(true);
 						addEvent(e, false);
-						break;
 					}
+					break;
 				}
 			}
 		}
 	}
 
-	public synchronized void setItemObtained(String goalId, GoalItem which, boolean obtained)
+	private static String itemLabel(GoalItem item)
+	{
+		return item.target() > 1 ? Format.number(item.target()) + " x " + item.getName() : item.getName();
+	}
+
+	public synchronized void setItemCollected(String goalId, GoalItem which, int collected)
 	{
 		Goal g = findGoal(goalId);
 		GoalItem item = g == null ? null : g.getItems().stream()
@@ -2692,8 +2621,17 @@ public class JourneyService implements RateSource
 		{
 			return;
 		}
-		item.setObtainedAt(obtained ? System.currentTimeMillis() : 0);
-		item.setSource(obtained ? "Marked manually" : null);
+		item.setCollected(Math.max(0, collected));
+		if (item.getCollected() < item.target())
+		{
+			item.setObtainedAt(0);
+			item.setSource(null);
+		}
+		else if (!item.isObtained())
+		{
+			item.setObtainedAt(System.currentTimeMillis());
+			item.setSource("Marked manually");
+		}
 		profileDirty = true;
 		checkGoals();
 		changed(false);
@@ -3161,11 +3099,20 @@ public class JourneyService implements RateSource
 			r.setSlayerTasks(r.getSlayerTasks() + d.getSlayerTasks());
 			r.setCluesCompleted(r.getCluesCompleted() + d.getCluesCompleted());
 			r.setClueLootValue(r.getClueLootValue() + d.getClueLootValue());
-			r.setSkillingIncome(r.getSkillingIncome() + d.getSkillingIncome());
-			d.getSkillingIncomeBySkill().forEach((k, v) -> r.getSkillingIncomeBySkill().merge(k, v, Long::sum));
+			r.setSkillingIncome(r.getSkillingIncome() + d.skillingEarned());
+			d.getSkillingIncomeBySkill().forEach((k, v) ->
+			{
+				if (v > 0)
+				{
+					r.getSkillingIncomeBySkill().merge(k, v, Long::sum);
+				}
+			});
 			d.getLootBySource().forEach((k, v) -> r.getLootBySource().computeIfAbsent(k, x -> new LootSource()).add(v));
-			r.setSuppliesCost(r.getSuppliesCost() + d.getSuppliesCost());
-			d.getSuppliesUsed().forEach((k, v) -> r.getSuppliesUsed().computeIfAbsent(k, x -> new ItemTotal()).add(v.getQuantity(), v.getValue()));
+			if (config.trackSupplies())
+			{
+				r.setSuppliesCost(r.getSuppliesCost() + d.getSuppliesCost());
+				d.getSuppliesUsed().forEach((k, v) -> r.getSuppliesUsed().computeIfAbsent(k, x -> new ItemTotal()).add(v.getQuantity(), v.getValue()));
+			}
 			r.setCombatTasks(r.getCombatTasks() + d.getCombatTasks());
 			r.setCombatTaskPoints(r.getCombatTaskPoints() + d.getCombatTaskPoints());
 			d.getClues().forEach((k, v) -> r.getClues().merge(k, v, Integer::sum));
@@ -3709,13 +3656,6 @@ public class JourneyService implements RateSource
 				rows.add(row);
 			}
 			s.setRecords(rows);
-		}
-		if (sections.contains("wealth") && config.trackWealth() && profile.isBankValueKnown())
-		{
-			PublicSnapshot.Wealth w = new PublicSnapshot.Wealth();
-			w.setNetWorth(Math.max(0, netWorth()));
-			w.setAsOf(LocalDate.now().toString());
-			s.setWealth(w);
 		}
 		return s;
 	}

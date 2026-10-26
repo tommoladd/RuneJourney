@@ -72,7 +72,7 @@ public class RuneJourneyPlugin extends Plugin
 	private SupplyTracker supplyTracker;
 
 	@Inject
-	private WealthTracker wealthTracker;
+	private CashTracker cashTracker;
 
 	@Inject
 	private ReportWindowManager reportWindows;
@@ -159,7 +159,6 @@ public class RuneJourneyPlugin extends Plugin
 		screenshotWindows.close();
 		incomeTracker.reset();
 		supplyTracker.reset();
-		wealthTracker.reset();
 		lastStatXp.clear();
 		pendingOffers.clear();
 		heldXp = null;
@@ -211,7 +210,6 @@ public class RuneJourneyPlugin extends Plugin
 		{
 			incomeTracker.reset();
 			supplyTracker.reset();
-			wealthTracker.reset();
 			collectionLogSync.reset();
 			achievementsReader.refresh();
 			lastStatXp.clear();
@@ -494,10 +492,6 @@ public class RuneJourneyPlugin extends Plugin
 		incomeTracker.onTick(tick);
 		collectionLogSync.onGameTick();
 		achievementsReader.onGameTick();
-		if (client.getGameState() == GameState.LOGGED_IN)
-		{
-			wealthTracker.onTick();
-		}
 		service.onTick(tick);
 		screenshots.onTick(tick);
 
@@ -621,7 +615,14 @@ public class RuneJourneyPlugin extends Plugin
 		service.onCounter(Counters.COLLECTION_LOG, client.getVarpValue(VarPlayerID.COLLECTION_COUNT));
 		service.setCollectionLogTotal(client.getVarpValue(VarPlayerID.COLLECTION_COUNT_MAX));
 		CLUE_VARBITS.forEach((varbit, tier) -> service.onCounter(Counters.clues(tier), client.getVarbitValue(varbit)));
-		wealthTracker.invalidate();
+		for (int id : new int[]{InventoryID.INV, InventoryID.BANK})
+		{
+			ItemContainer container = client.getItemContainer(id);
+			if (container != null)
+			{
+				cashTracker.onContainer(id, container);
+			}
+		}
 	}
 
 	@Subscribe
@@ -659,6 +660,13 @@ public class RuneJourneyPlugin extends Plugin
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
 		int id = event.getContainerId();
+		cashTracker.onContainer(id, event.getItemContainer());
+		if (id == InventoryID.WORN)
+		{
+			// Gear swaps move items between inventory and equipment, which isn't skilling income
+			incomeTracker.suppress(client.getTickCount());
+			return;
+		}
 		if (id == InventoryID.INV)
 		{
 			incomeTracker.onInventory(event.getItemContainer());

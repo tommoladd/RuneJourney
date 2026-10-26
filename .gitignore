@@ -11,3 +11,4 @@ nbproject/
 RuneJourney-Concept-and-Development-Plan.md
 KNOWN_BUGS.md
 src/test/
+*.log

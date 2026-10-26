@@ -280,20 +280,13 @@ class TodayTab extends RefreshableTab
 		JPanel xp = Ui.tile(Format.compact(r.getXpGained()), "XP gained", Color.WHITE);
 		xp.setToolTipText(Format.number(r.getXpGained()) + " XP");
 		grid.add(xp);
-		long profit = r.getLootValue() + r.getSkillingIncome() - r.getSuppliesCost();
-		grid.add(Ui.tile(gp(profit), "Profit", profit > 0 ? Ui.GOOD : profit < 0 ? Ui.BAD : Color.WHITE));
-		Long worth = r.getEndSnapshot().get(Counters.WEALTH);
-		Long worthBefore = r.getStartSnapshot().get(Counters.WEALTH);
-		if (worth != null)
-		{
-			long change = worthBefore == null ? 0 : worth - worthBefore;
-			grid.add(Ui.tile(Format.compact(worth) + " gp",
-				worthBefore == null ? "Net worth" : "Net worth " + (change >= 0 ? "+" : "") + Format.compact(change), Color.WHITE));
-		}
-		else
-		{
-			grid.add(Ui.tile(Format.number(r.getLevelsGained()), "Levels gained", Color.WHITE));
-		}
+		// Skilling income is summed from positive days and skills only, so this never goes negative
+		long income = r.getLootValue() + r.getSkillingIncome();
+		JPanel incomeTile = Ui.tile(gp(income), "Income", income > 0 ? Ui.GOOD : Color.WHITE);
+		incomeTile.setToolTipText("Loot " + Format.compact(r.getLootValue()) + " gp, skilling "
+			+ Format.compact(r.getSkillingIncome()) + " gp");
+		grid.add(incomeTile);
+		grid.add(Ui.tile(Format.number(r.getLevelsGained()), "Levels gained", Color.WHITE));
 		return grid;
 	}
 
@@ -388,11 +381,11 @@ class TodayTab extends RefreshableTab
 		}
 		if (r.getSkillingIncome() != 0)
 		{
-			card.add(Ui.stat("Skilling", gp(r.getSkillingIncome()), r.getSkillingIncome() < 0 ? Ui.BAD : Color.WHITE));
+			card.add(Ui.stat("Skilling", gp(r.getSkillingIncome())));
 		}
 		if (r.getSuppliesCost() > 0)
 		{
-			card.add(Ui.stat("Supplies used", gp(-r.getSuppliesCost()), Ui.BAD));
+			card.add(Ui.stat("Supplies used", gp(r.getSuppliesCost()), ColorScheme.LIGHT_GRAY_COLOR));
 		}
 		if (!expanded.contains(MONEY))
 		{
@@ -415,7 +408,7 @@ class TodayTab extends RefreshableTab
 		}
 
 		List<Map.Entry<String, Long>> skilling = r.getSkillingIncomeBySkill().entrySet().stream()
-			.filter(e -> e.getValue() != 0 && Skills.parse(e.getKey()) != null)
+			.filter(e -> e.getValue() > 0 && Skills.parse(e.getKey()) != null)
 			.sorted(Map.Entry.<String, Long>comparingByValue().reversed())
 			.collect(Collectors.toList());
 		if (!skilling.isEmpty())
@@ -424,7 +417,7 @@ class TodayTab extends RefreshableTab
 			for (Map.Entry<String, Long> e : skilling)
 			{
 				Skill s = Skills.parse(e.getKey());
-				JPanel row = Ui.stat(s.getName(), gp(e.getValue()), e.getValue() < 0 ? Ui.BAD : ColorScheme.LIGHT_GRAY_COLOR);
+				JPanel row = Ui.stat(s.getName(), gp(e.getValue()), ColorScheme.LIGHT_GRAY_COLOR);
 				((JLabel) row.getComponent(0)).setIcon(views.skillIcon(s));
 				card.add(row);
 			}
@@ -438,8 +431,8 @@ class TodayTab extends RefreshableTab
 			card.add(subheading("Supplies used"));
 			supplies.stream().limit(BREAKDOWN_ROWS).forEach(e -> card.add(Ui.stat(
 				e.getKey() + " x" + Format.number(e.getValue().getQuantity()),
-				gp(-e.getValue().getValue()), ColorScheme.LIGHT_GRAY_COLOR)));
-			otherRow(card, -supplies.stream().skip(BREAKDOWN_ROWS).mapToLong(e -> e.getValue().getValue()).sum(),
+				gp(e.getValue().getValue()), ColorScheme.LIGHT_GRAY_COLOR)));
+			otherRow(card, supplies.stream().skip(BREAKDOWN_ROWS).mapToLong(e -> e.getValue().getValue()).sum(),
 				supplies.size() - BREAKDOWN_ROWS);
 		}
 		body.add(card);
@@ -516,7 +509,7 @@ class TodayTab extends RefreshableTab
 
 	private static String gp(long value)
 	{
-		return (value > 0 ? "+" : "") + Format.compact(value) + " gp";
+		return Format.compact(value) + " gp";
 	}
 
 	private static void otherRow(JPanel card, long value, int count)

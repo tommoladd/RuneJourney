@@ -47,7 +47,6 @@ class ReportWindow extends JFrame
 		COLORS.put(Metric.CA_POINTS, new Color(0xBA68C8));
 		COLORS.put(Metric.LEVELS, new Color(0x8BC34A));
 		COLORS.put(Metric.DEATHS, new Color(0x9E9E9E));
-		COLORS.put(Metric.NET_WORTH, new Color(0x26A69A));
 	}
 
 	@Getter
@@ -1050,20 +1049,10 @@ class ReportWindow extends JFrame
 
 		Analytics.Stats stats = Analytics.stats(days, from, to, m, filter, g, previousDays);
 		exploreTiles.removeAll();
-		if (m.isBalance())
-		{
-			exploreTiles.add(tile("Latest", unit.format(stats.getTotal()), null, null));
-			double delta = stats.getPerActiveDay();
-			exploreTiles.add(tile("Change in period", (delta >= 0 ? "+" : "-") + unit.format(Math.abs(delta)), null, null,
-				delta >= 0 ? Ui.GOOD : Ui.BAD));
-		}
-		else
-		{
-			exploreTiles.add(tile(m.isPerHour() ? "Overall rate" : "Total", unit.format(stats.getTotal()), null, null));
-			exploreTiles.add(tile(m.isPerHour() ? "Hours played" : "Per day played",
-				m.isPerHour() ? Format.hours(days.stream().mapToDouble(Metric::hours).sum()) : unit.format(stats.getPerActiveDay()),
-				stats.getActiveDays() + " days played", Ui.MUTED));
-		}
+		exploreTiles.add(tile(m.isPerHour() ? "Overall rate" : "Total", unit.format(stats.getTotal()), null, null));
+		exploreTiles.add(tile(m.isPerHour() ? "Hours played" : "Per day played",
+			m.isPerHour() ? Format.hours(days.stream().mapToDouble(Metric::hours).sum()) : unit.format(stats.getPerActiveDay()),
+			stats.getActiveDays() + " days played", Ui.MUTED));
 		Analytics.Bucket best = stats.getBest();
 		exploreTiles.add(tile("Best " + g.noun(), best == null ? "-" : unit.format(best.getValue()), best == null ? null : best.getLabel(), Ui.MUTED));
 		double change = stats.change();
@@ -1098,15 +1087,7 @@ class ReportWindow extends JFrame
 			leftBars.setData(top, unit, color(m));
 		}
 		rightTitle.setText(m.isPerHour() ? "Rate by day of week" : "Average by day of week");
-		if (m.isBalance())
-		{
-			rightBars.setEmptyText("Not used for balances like net worth");
-			rightBars.setData(Collections.emptyList(), unit, color(m));
-		}
-		else
-		{
-			rightBars.setData(Analytics.byWeekday(days, from, to, m, filter), unit, color(m));
-		}
+		rightBars.setData(Analytics.byWeekday(days, from, to, m, filter), unit, color(m));
 
 		List<Analytics.Bucket> raw = Analytics.series(days, from, to, m, filter, g);
 		List<Analytics.Bucket> rawPrev = previous != null ? Analytics.previousSeries(previousDays, from, to, m, filter, g) : null;
@@ -1200,14 +1181,14 @@ class ReportWindow extends JFrame
 			overviewTiles.add(tile);
 		}
 
-		Metric[] charts = {Metric.XP, Metric.PLAYTIME, Metric.INCOME, Metric.KILLS, Metric.CLUES, Metric.NET_WORTH};
+		Metric[] charts = {Metric.XP, Metric.PLAYTIME, Metric.INCOME, Metric.KILLS, Metric.CLUES, Metric.COLLECTION_LOG};
 		overviewCharts.removeAll();
 		Granularity g = Granularity.AUTO.resolve(from, to);
 		for (Metric m : charts)
 		{
 			TimeSeriesChart chart = new TimeSeriesChart(true);
 			chart.setData(Analytics.series(days, from, to, m, null, g), null, m.getUnit(), color(m),
-				m.isPerHour() || m.isBalance() ? TimeSeriesChart.Style.LINE : TimeSeriesChart.Style.BARS);
+				m.isPerHour() ? TimeSeriesChart.Style.LINE : TimeSeriesChart.Style.BARS);
 			chart.setOnClick(i -> openExplore(m, null));
 			Analytics.Stats s = Analytics.stats(days, from, to, m, null, g, null);
 			JLabel title = new JLabel(m.getLabel() + "  ·  " + m.getUnit().format(s.getTotal()));

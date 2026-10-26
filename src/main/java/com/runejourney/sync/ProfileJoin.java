@@ -45,13 +45,8 @@ public final class ProfileJoin
 		RULES.put("bankCashKnown", Rule.ANY);
 		RULES.put("inventoryCash", Rule.NEWEST);
 		RULES.put("geSlots", Rule.NEWEST);
-		RULES.put("holdings", Rule.MAP_NEWEST);
-		RULES.put("wealthParts", Rule.MAP_NEWEST);
-		RULES.put("bankValueKnown", Rule.ANY);
-		RULES.put("bankValue", Rule.LOCAL);
-		RULES.put("inventoryValue", Rule.LOCAL);
-		RULES.put("equipmentValue", Rule.LOCAL);
-		RULES.put("bestWealth", Rule.MAX);
+		RULES.put("bankValue", Rule.NEWEST);
+		RULES.put("bankValueAt", Rule.NEWEST);
 		RULES.put("collectionLog", Rule.MAP_NEWEST);
 		RULES.put("collectionLogTabs", Rule.NEWEST);
 		RULES.put("collectionLogSyncedAt", Rule.MAX);

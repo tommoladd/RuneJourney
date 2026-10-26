@@ -73,10 +73,6 @@ public final class Analytics
 	{
 		Granularity g = granularity.resolve(from, to);
 		Map<LocalDate, DayRecord> map = byDate(days);
-		if (metric.isBalance())
-		{
-			return balanceSeries(map, from, to, metric, g);
-		}
 		List<Bucket> buckets = new ArrayList<>();
 		for (LocalDate start = g.bucketStart(from); !start.isAfter(to); start = g.next(start))
 		{
@@ -108,56 +104,9 @@ public final class Analytics
 		return buckets;
 	}
 
-	private static List<Bucket> balanceSeries(Map<LocalDate, DayRecord> map, LocalDate from, LocalDate to, Metric metric,
-		Granularity g)
-	{
-		double last = Double.NaN;
-		LocalDate earliest = map.keySet().stream().min(LocalDate::compareTo).orElse(from);
-		for (LocalDate d = earliest; d.isBefore(from); d = d.plusDays(1))
-		{
-			DayRecord r = map.get(d);
-			if (r != null && !Double.isNaN(metric.balance(r)))
-			{
-				last = metric.balance(r);
-			}
-		}
-		List<Bucket> buckets = new ArrayList<>();
-		for (LocalDate start = g.bucketStart(from); !start.isAfter(to); start = g.next(start))
-		{
-			LocalDate end = g.next(start).minusDays(1);
-			if (end.isAfter(to))
-			{
-				end = to;
-			}
-			double hours = 0;
-			int active = 0;
-			for (LocalDate d = start.isBefore(from) ? from : start; !d.isAfter(end); d = d.plusDays(1))
-			{
-				DayRecord r = map.get(d);
-				if (r == null)
-				{
-					continue;
-				}
-				double v = metric.balance(r);
-				if (!Double.isNaN(v))
-				{
-					last = v;
-				}
-				hours += Metric.hours(r);
-				if (r.getPlayMillis() > 0)
-				{
-					active++;
-				}
-			}
-			double value = Double.isNaN(last) ? 0 : last;
-			buckets.add(new Bucket(start, end, g.label(start), value, value, hours, active));
-		}
-		return buckets;
-	}
-
 	public static List<Bucket> cumulative(List<Bucket> series, Metric metric)
 	{
-		if (metric.isPerHour() || metric.isBalance())
+		if (metric.isPerHour())
 		{
 			return series;
 		}
@@ -174,10 +123,6 @@ public final class Analytics
 	public static Stats stats(List<DayRecord> days, LocalDate from, LocalDate to, Metric metric, String filter,
 		Granularity granularity, List<DayRecord> previousDays)
 	{
-		if (metric.isBalance())
-		{
-			return balanceStats(days, from, to, metric, granularity, previousDays);
-		}
 		double num = 0;
 		double hours = 0;
 		int active = 0;
@@ -215,38 +160,6 @@ public final class Analytics
 			previous = p.getTotal();
 		}
 		return new Stats(total, active, perDay, best, previous);
-	}
-
-	private static Stats balanceStats(List<DayRecord> days, LocalDate from, LocalDate to, Metric metric,
-		Granularity granularity, List<DayRecord> previousDays)
-	{
-		List<DayRecord> all = new ArrayList<>();
-		if (previousDays != null)
-		{
-			all.addAll(previousDays);
-		}
-		all.addAll(days);
-		List<Bucket> daily = series(all, from, to, metric, null, Granularity.DAY);
-		double end = daily.isEmpty() ? 0 : daily.get(daily.size() - 1).getValue();
-		double start = daily.stream().mapToDouble(Bucket::getValue).filter(v -> v > 0).findFirst().orElse(0);
-		int active = (int) days.stream().filter(d -> d.getPlayMillis() > 0).count();
-		Bucket best = null;
-		for (Bucket b : series(all, from, to, metric, null, granularity))
-		{
-			if (b.getValue() > 0 && (best == null || b.getValue() > best.getValue()))
-			{
-				best = b;
-			}
-		}
-		double previous = Double.NaN;
-		if (previousDays != null && !previousDays.isEmpty())
-		{
-			LocalDate[] prev = previousPeriod(from, to);
-			List<Bucket> p = series(previousDays, prev[0], prev[1], metric, null, Granularity.DAY);
-			double v = p.isEmpty() ? 0 : p.get(p.size() - 1).getValue();
-			previous = v > 0 ? v : Double.NaN;
-		}
-		return new Stats(end, active, end - start, best, previous);
 	}
 
 	public static List<Entry> breakdown(List<DayRecord> days, LocalDate from, LocalDate to, Metric metric)

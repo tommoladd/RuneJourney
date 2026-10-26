@@ -15,7 +15,8 @@ public enum GoalType
 	ITEMS("Obtain items"),
 	MONEY("Save money"),
 	PURCHASE("Purchase an item"),
-	NET_WORTH("Reach a net worth"),
+	// Retired: can't be created any more, and older goals now track the bank's value
+	NET_WORTH("Reach a bank value"),
 	CLOG_CATEGORY("Complete a collection log page"),
 	COMBAT_ACHIEVEMENTS("Combat Achievement points"),
 	COMBAT_TASKS("Combat tasks"),

@@ -92,7 +92,7 @@ public final class Counters
 			case CASH:
 				return "Cash stack";
 			case WEALTH:
-				return "Net worth";
+				return "Bank value";
 			default:
 				return key;
 		}

@@ -74,7 +74,7 @@ public final class WrappedBuilder
 		{
 			play += d.getPlayMillis();
 			xp += d.getXpGained();
-			income += d.getLootValue() + d.getSkillingIncome();
+			income += d.getLootValue() + d.skillingEarned();
 			deaths += d.getDeaths();
 			clues += d.getCluesCompleted();
 			clogSlots += d.getCollectionLogSlots();
@@ -163,7 +163,7 @@ public final class WrappedBuilder
 
 		if (income > 0)
 		{
-			WrappedWeek.Slide s = slide(pick(rnd, "You made", "Your coffers grew by", "Loot and profit"),
+			WrappedWeek.Slide s = slide(pick(rnd, "You made", "Your coffers grew by", "You earned"),
 				income, WrappedWeek.ValueFormat.GP, "gp");
 			s.setIcon(WrappedIcons.COINS);
 			JourneyEvent best = events.stream().filter(e -> e.getType() == EventType.DROP)
