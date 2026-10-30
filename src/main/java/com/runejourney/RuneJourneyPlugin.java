@@ -103,6 +103,7 @@ public class RuneJourneyPlugin extends Plugin
 
 	private final Map<Skill, Integer> lastStatXp = new EnumMap<>(Skill.class);
 	private final List<GrandExchangeOfferChanged> pendingOffers = new ArrayList<>();
+	private final NpcLoot npcLoot = new NpcLoot();
 	private Map<String, Long> heldXp;
 
 	@Getter
@@ -159,6 +160,7 @@ public class RuneJourneyPlugin extends Plugin
 		screenshotWindows.close();
 		incomeTracker.reset();
 		supplyTracker.reset();
+		npcLoot.reset();
 		lastStatXp.clear();
 		pendingOffers.clear();
 		heldXp = null;
@@ -210,6 +212,7 @@ public class RuneJourneyPlugin extends Plugin
 		{
 			incomeTracker.reset();
 			supplyTracker.reset();
+			npcLoot.reset();
 			collectionLogSync.reset();
 			achievementsReader.refresh();
 			lastStatXp.clear();
@@ -490,6 +493,10 @@ public class RuneJourneyPlugin extends Plugin
 		}
 
 		incomeTracker.onTick(tick);
+		for (NpcLoot.Drop d : npcLoot.due(tick))
+		{
+			service.onLoot(d.getSource(), priced(d.getItems()), tick);
+		}
 		collectionLogSync.onGameTick();
 		achievementsReader.onGameTick();
 		service.onTick(tick);
@@ -808,13 +815,15 @@ public class RuneJourneyPlugin extends Plugin
 		{
 			return;
 		}
-		ChatParser.Result r = ChatParser.parse(Text.removeTags(event.getMessage()));
+		String message = Text.removeTags(event.getMessage());
+		int tick = client.getTickCount();
+		npcLoot.onChatMessage(message, tick);
+		ChatParser.Result r = ChatParser.parse(message);
 		if (r == null)
 		{
 			return;
 		}
 
-		int tick = client.getTickCount();
 		switch (r.getKind())
 		{
 			case KILL_COUNT:
@@ -891,7 +900,17 @@ public class RuneJourneyPlugin extends Plugin
 	@Subscribe
 	public void onNpcLootReceived(NpcLootReceived event)
 	{
-		service.onLoot(event.getNpc().getName(), priced(event.getItems()), client.getTickCount());
+		npcLoot.onFloorLoot(event.getNpc().getName(), event.getItems(), client.getTickCount());
+	}
+
+	@Subscribe
+	public void onServerNpcLoot(ServerNpcLoot event)
+	{
+		int tick = client.getTickCount();
+		if (npcLoot.onServerLoot(tick))
+		{
+			service.onLoot(Text.removeTags(event.getComposition().getName()), priced(event.getItems()), tick);
+		}
 	}
 
 	@Subscribe
