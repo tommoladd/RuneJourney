@@ -115,7 +115,7 @@ class AchievementsReader
 				Object parent = field(row, DBTableID.Quest.COL_PARENT_QUEST);
 				out.put(q, new QuestInfo(
 					sortName instanceof String ? (String) sortName : q.getName(),
-					number(field(row, DBTableID.Quest.COL_QUESTPOINTS)),
+					number(field(row, DBTableID.Quest.COL_QUESTPOINTS_OVERRIDE)),
 					number(field(row, DBTableID.Quest.COL_MEMBERS)) != 0,
 					number(field(row, DBTableID.Quest.COL_TYPE)) == QUEST_TYPE_MINIQUEST,
 					parent instanceof Integer ? byRow.get(parent) : null));
