@@ -165,7 +165,9 @@ public final class ProfileJoin
 				}
 			}
 		});
-		return gson.fromJson(out, ProfileData.class);
+		ProfileData combined = gson.fromJson(out, ProfileData.class);
+		NonBossCounts.strip(combined);
+		return combined;
 	}
 
 	public static ProfileSlice reconcile(Gson gson, ProfileData view, String me, Map<String, ProfileSlice> slices, Hlc hlc)

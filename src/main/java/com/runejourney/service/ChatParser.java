@@ -6,7 +6,7 @@ import lombok.Value;
 public final class ChatParser
 {
 	private static final Pattern KILL_COUNT = Pattern.compile(
-		"^Your (?:completed )?(.+?) (?:kill |chest |completion |success |rescue )?count is: ?([\\d,]+)\\.?$");
+		"^Your (?:completed )?(.+?) (kill |chest |completion |success |rescue |lap |harvest )?count is: ?([\\d,]+)\\.?$");
 	private static final Pattern COLLECTION_LOG = Pattern.compile("^New item added to your collection log: (.+)$");
 	private static final Pattern QUEST = Pattern.compile("^Congratulations, you've completed a quest: (.+?)\\.?$");
 	private static final Pattern COMBAT_TASK = Pattern.compile(
@@ -53,7 +53,13 @@ public final class ChatParser
 		Matcher m = KILL_COUNT.matcher(message);
 		if (m.matches())
 		{
-			return new Result(Kind.KILL_COUNT, normalizeBoss(m.group(1)), null, parseInt(m.group(2)));
+			// Agility lap and herbiboar harvest counts share the wording but aren't kills
+			String what = m.group(2);
+			if ("lap ".equals(what) || "harvest ".equals(what))
+			{
+				return null;
+			}
+			return new Result(Kind.KILL_COUNT, normalizeBoss(m.group(1)), null, parseInt(m.group(3)));
 		}
 
 		m = COLLECTION_LOG.matcher(message);

@@ -59,10 +59,10 @@ public final class WrappedIcons
 		pet("Skotizo", ItemID.SKOTIZOPET);
 		pet("Sol Heredit", ItemID.SOLHEREDITPET);
 		pet("Tempoross", ItemID.TEMPOROSSPET);
-		pet("The Hueycoatl", ItemID.HUEYPET);
-		pet("The Leviathan", ItemID.LEVIATHANPET);
-		pet("The Royal Titans", ItemID.RTBRANDAPET);
-		pet("The Whisperer", ItemID.WHISPERERPET);
+		pet("Hueycoatl", ItemID.HUEYPET);
+		pet("Leviathan", ItemID.LEVIATHANPET);
+		pet("Royal Titan", ItemID.RTBRANDAPET);
+		pet("Whisperer", ItemID.WHISPERERPET);
 		pet("Theatre of Blood", ItemID.VERZIKPET);
 		pet("Thermonuclear Smoke Devil", ItemID.SMOKEPET);
 		pet("Tombs of Amascut", ItemID.WARDENPET_TUMEKEN);

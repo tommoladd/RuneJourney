@@ -44,13 +44,49 @@ public class BossData
 		return Collections.unmodifiableList(bosses);
 	}
 
+	/**
+	 * Names compared loosely, because the game's kill count message, the hiscores and older versions of
+	 * this list disagree on a leading "The" and on plurals ("The Leviathan" vs "Leviathan").
+	 */
+	public static String key(String name)
+	{
+		String k = name.trim().toLowerCase(Locale.ENGLISH);
+		if (k.startsWith("the "))
+		{
+			k = k.substring("the ".length());
+		}
+		if (k.endsWith("s"))
+		{
+			k = k.substring(0, k.length() - 1);
+		}
+		return k;
+	}
+
+	/** This list's spelling of the boss, or the name unchanged if it isn't listed */
+	public String canonical(String name)
+	{
+		if (name == null)
+		{
+			return null;
+		}
+		String k = key(name);
+		for (Boss b : bosses)
+		{
+			if (key(b.getName()).equals(k))
+			{
+				return b.getName();
+			}
+		}
+		return name;
+	}
+
 	public double minutesPerKill(String name)
 	{
 		if (name == null)
 		{
 			return -1;
 		}
-		String lower = name.toLowerCase(Locale.ENGLISH);
+		String lower = canonical(name).toLowerCase(Locale.ENGLISH);
 		Boss best = null;
 		for (Boss b : bosses)
 		{

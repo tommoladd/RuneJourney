@@ -51,6 +51,32 @@ public final class DaySlices
 			d.setSnapshot(new HashMap<>(snapshotFrom.getDay().getSnapshot()));
 		}
 		d.setEvents(events(devices, slices));
+		NonBossCounts.strip(d);
+		return d;
+	}
+
+	/** The day's totals minus another record's, e.g. what was added since the client was opened */
+	public static DayRecord minus(Gson gson, DayRecord day, DayRecord base)
+	{
+		JsonObject counts = counts(gson, day);
+		Trees.add(counts, counts(gson, base), -1);
+		return fromCounts(gson, counts, day.getDate());
+	}
+
+	/** {@code base} moved by however much the day changed from {@code before} to {@code after} */
+	public static DayRecord shift(Gson gson, DayRecord base, DayRecord before, DayRecord after)
+	{
+		JsonObject counts = counts(gson, base);
+		Trees.add(counts, counts(gson, after), 1);
+		Trees.add(counts, counts(gson, before), -1);
+		return fromCounts(gson, counts, base.getDate());
+	}
+
+	private static DayRecord fromCounts(Gson gson, JsonObject counts, String date)
+	{
+		Trees.prune(counts);
+		DayRecord d = gson.fromJson(counts, DayRecord.class);
+		d.setDate(date);
 		return d;
 	}
 

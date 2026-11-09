@@ -24,6 +24,7 @@ class TodayTab extends RefreshableTab
 	@RequiredArgsConstructor
 	enum Range
 	{
+		SESSION("This session"),
 		TODAY("Today"),
 		YESTERDAY("Yesterday"),
 		THIS_WEEK("This week"),
@@ -66,7 +67,9 @@ class TodayTab extends RefreshableTab
 	private final Set<String> expanded = new HashSet<>();
 	private LocalDate customFrom = LocalDate.now().minusDays(6);
 	private LocalDate customTo = LocalDate.now();
-	private Range lastRange = Range.TODAY;
+	private Range lastRange = Range.SESSION;
+	private static final java.time.format.DateTimeFormatter SESSION_TIME =
+		java.time.format.DateTimeFormatter.ofPattern("HH:mm", java.util.Locale.ENGLISH);
 
 	@Inject
 	TodayTab(JourneyService service, Views views, ReportWindowManager reportWindows, WrappedPlayer wrappedPlayer)
@@ -229,19 +232,28 @@ class TodayTab extends RefreshableTab
 		LocalDate from = selected[0];
 		LocalDate to = selected[1];
 
-		RangeSummary r = service.summarize(from, to);
+		boolean thisSession = range == Range.SESSION;
+		RangeSummary r = thisSession ? service.summarizeSession() : service.summarize(from, to);
 		body.removeAll();
 
 		SessionView session = service.sessionView();
-		if (session != null && (range == Range.TODAY || range == Range.THIS_WEEK))
+		if (session != null && (thisSession || range == Range.TODAY || range == Range.THIS_WEEK))
 		{
 			body.add(views.session(session));
 		}
 
-		boolean multiDay = !from.equals(to);
+		// A session past midnight still reads as one stretch of play, not a multi-day range
+		boolean multiDay = !thisSession && !from.equals(to);
 		if (multiDay)
 		{
 			body.add(Ui.muted(Format.date(from) + " - " + Format.date(to)));
+		}
+		long sessionStart = service.sessionStart();
+		if (thisSession && sessionStart > 0)
+		{
+			java.time.ZonedDateTime started = java.time.Instant.ofEpochMilli(sessionStart).atZone(java.time.ZoneId.systemDefault());
+			body.add(Ui.muted("Since RuneLite was opened at " + started.format(SESSION_TIME)
+				+ (started.toLocalDate().equals(LocalDate.now()) ? "" : " on " + started.format(MENU_DATE))));
 		}
 		body.add(tiles(r, multiDay));
 		int[] streak = service.playStreaks();
@@ -257,7 +269,9 @@ class TodayTab extends RefreshableTab
 
 		if (r.getPlayMillis() == 0 && r.getHighlights().isEmpty() && r.getXpGained() == 0)
 		{
-			body.add(Ui.empty(range == Range.TODAY
+			body.add(Ui.empty(thisSession
+				? "Nothing recorded yet this session. Go make some memories!"
+				: range == Range.TODAY
 				? "Nothing recorded yet today. Go make some memories!"
 				: "Nothing was recorded in this period."));
 			rebuild();

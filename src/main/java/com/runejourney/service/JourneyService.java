@@ -83,6 +83,24 @@ public class JourneyService implements RateSource
 	private long sessionMillis;
 	private String lastStreakCheck;
 
+	// Per account, since its journey was first opened in this client: "This session" on the Today tab
+	private final Map<String, ClientSession> clientSessions = new HashMap<>();
+
+	private static class ClientSession
+	{
+		final long startMillis;
+		final String date;
+		// The start day's totals when the session began, moved along when another device's data merges in
+		DayRecord baseline;
+
+		ClientSession(long startMillis, String date, DayRecord baseline)
+		{
+			this.startMillis = startMillis;
+			this.date = date;
+			this.baseline = baseline;
+		}
+	}
+
 	private static class PendingClue
 	{
 		String tier;
@@ -177,8 +195,67 @@ public class JourneyService implements RateSource
 				dirtyDays.add(d.getDate());
 			}
 		}
+		stripNonBossCounts();
+		fixGoalBossNames();
+		if (!clientSessions.containsKey(key))
+		{
+			String date = LocalDate.now().toString();
+			DayRecord start = days.get(date);
+			clientSessions.put(key, new ClientSession(System.currentTimeMillis(), date,
+				start != null ? copyDay(start) : new DayRecord(date)));
+		}
 		resetSessionState();
 		changed(true);
+	}
+
+	private void stripNonBossCounts()
+	{
+		if (NonBossCounts.strip(profile))
+		{
+			profileDirty = true;
+		}
+		List<String> stripped = new ArrayList<>();
+		for (DayRecord d : days.values())
+		{
+			if (NonBossCounts.strip(d))
+			{
+				stripped.add(d.getDate());
+				dirtyDays.add(d.getDate());
+			}
+		}
+		// A "most boss kills" record set on one of those days may only have been a record because of them
+		for (String date : stripped)
+		{
+			DayRecord d = days.get(date);
+			String id = EventIds.fixed("record", "kills", date);
+			long kills = bossKillsOn(d);
+			long previousBest = 0;
+			for (DayRecord before : days.headMap(date, false).values())
+			{
+				previousBest = Math.max(previousBest, bossKillsOn(before));
+			}
+			for (Iterator<JourneyEvent> it = d.getEvents().iterator(); it.hasNext(); )
+			{
+				JourneyEvent e = it.next();
+				if (e.getType() != EventType.RECORD || !id.equals(e.getId()))
+				{
+					continue;
+				}
+				if (previousBest <= 0 || kills <= previousBest)
+				{
+					it.remove();
+				}
+				else
+				{
+					e.setDetail(Format.number(kills) + " boss kills (previous best " + Format.compact(previousBest) + ")");
+				}
+			}
+		}
+	}
+
+	private static long bossKillsOn(DayRecord d)
+	{
+		return d.getBossKills().values().stream().mapToLong(Integer::longValue).sum();
 	}
 
 	private void cleanEventText()
@@ -1374,6 +1451,7 @@ public class JourneyService implements RateSource
 			return;
 		}
 		currentTick = tick;
+		boss = bossName(boss);
 		profile.getKillCounts().put(boss, count);
 		profileDirty = true;
 		DayRecord d = today();
@@ -2089,18 +2167,70 @@ public class JourneyService implements RateSource
 
 	public synchronized List<String> knownBosses()
 	{
-		Set<String> names = new java.util.LinkedHashSet<>();
+		Map<String, String> byKey = new LinkedHashMap<>();
 		if (profile != null)
 		{
 			profile.getKillCounts().entrySet().stream()
 				.sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-				.forEach(e -> names.add(e.getKey()));
+				.forEach(e -> byKey.putIfAbsent(BossData.key(e.getKey()), e.getKey()));
 		}
 		for (BossData.Boss b : bossData.all())
 		{
-			names.add(b.getName());
+			byKey.putIfAbsent(BossData.key(b.getName()), b.getName());
 		}
-		return new ArrayList<>(names);
+		return new ArrayList<>(byKey.values());
+	}
+
+	/** The name kills of this boss are already recorded under, else the boss list's spelling */
+	private String bossName(String name)
+	{
+		if (profile.getKillCounts().containsKey(name))
+		{
+			return name;
+		}
+		String key = BossData.key(name);
+		for (String known : profile.getKillCounts().keySet())
+		{
+			if (BossData.key(known).equals(key))
+			{
+				return known;
+			}
+		}
+		return bossData.canonical(name);
+	}
+
+	// Goals picked from an older boss list ("The Leviathan") never matched the in-game name ("Leviathan")
+	private void fixGoalBossNames()
+	{
+		for (Goal g : profile.getGoals())
+		{
+			if (g.getType() != GoalType.BOSS_KC || !Counters.isKc(g.getCounter()))
+			{
+				continue;
+			}
+			String was = Counters.suffix(g.getCounter());
+			String now = bossName(was);
+			if (now.equals(was))
+			{
+				continue;
+			}
+			g.setCounter(Counters.kc(now));
+			Integer kc = profile.getKillCounts().get(now);
+			// The goal saw 0 kills when it was made, so a "+N kills" goal is rebased onto today's count
+			if (kc != null && g.getStartCount() == 0 && !g.isComplete())
+			{
+				if (g.isRelative())
+				{
+					g.setStartCount(kc);
+					g.setTargetCount(g.getTargetCount() + kc);
+				}
+				if (g.getWeekStartXp().getOrDefault(GoalPlanner.COUNT_KEY, 0L) == 0)
+				{
+					g.getWeekStartXp().put(GoalPlanner.COUNT_KEY, (long) kc);
+				}
+			}
+			profileDirty = true;
+		}
 	}
 
 	public synchronized void onCash(boolean bank, long gp)
@@ -3077,11 +3207,56 @@ public class JourneyService implements RateSource
 
 	public synchronized RangeSummary summarize(LocalDate from, LocalDate to)
 	{
+		return summarize(from, to, days.subMap(from.toString(), true, to.toString(), true).values());
+	}
+
+	/** When "This session" began for the logged in account, or 0 before login */
+	public synchronized long sessionStart()
+	{
+		ClientSession s = clientSessions.get(profileKey);
+		return profile == null || s == null ? 0 : s.startMillis;
+	}
+
+	/** Everything since the account was first loaded in this client, which can run past midnight */
+	public synchronized RangeSummary summarizeSession()
+	{
+		LocalDate today = LocalDate.now();
+		ClientSession s = clientSessions.get(profileKey);
+		if (profile == null || s == null)
+		{
+			return summarize(today, today, Collections.emptyList());
+		}
+		LocalDate from = LocalDate.parse(s.date);
+		List<DayRecord> parts = new ArrayList<>();
+		for (DayRecord d : days.subMap(s.date, true, today.toString(), true).values())
+		{
+			if (!d.getDate().equals(s.date))
+			{
+				parts.add(d);
+				continue;
+			}
+			DayRecord part = DaySlices.minus(syncGson, d, s.baseline);
+			part.setAwayFrom(d.getAwayFrom());
+			part.setSnapshot(d.getSnapshot());
+			for (JourneyEvent e : d.getEvents())
+			{
+				if (e.getTime() >= s.startMillis)
+				{
+					part.getEvents().add(e);
+				}
+			}
+			parts.add(part);
+		}
+		return summarize(from, today.isBefore(from) ? from : today, parts);
+	}
+
+	private RangeSummary summarize(LocalDate from, LocalDate to, Collection<DayRecord> inRange)
+	{
 		RangeSummary r = new RangeSummary();
 		r.setFrom(from);
 		r.setTo(to);
 		List<JourneyEvent> highlights = new ArrayList<>();
-		for (DayRecord d : days.subMap(from.toString(), true, to.toString(), true).values())
+		for (DayRecord d : inRange)
 		{
 			if (d.getPlayMillis() > 0)
 			{
@@ -3987,6 +4162,11 @@ public class JourneyService implements RateSource
 		}
 		removedDays.addAll(days.keySet());
 		days.clear();
+		ClientSession session = clientSessions.get(key);
+		if (session != null)
+		{
+			session.baseline = new DayRecord(session.date);
+		}
 		dirtyDays.clear();
 		syncDays.clear();
 		eventIds.clear();
@@ -4086,6 +4266,12 @@ public class JourneyService implements RateSource
 		DaySync s = d.getSync();
 		DayRecord combined = DaySlices.combine(syncGson, date, slices(s, me));
 		combined.setSync(s);
+		// Another device's play isn't this session's, so move the session's starting point by it too
+		ClientSession session = clientSessions.get(profileKey);
+		if (session != null && session.date.equals(date))
+		{
+			session.baseline = DaySlices.shift(syncGson, session.baseline, d, combined);
+		}
 		days.put(date, combined);
 		dirtyDays.add(date);
 	}
